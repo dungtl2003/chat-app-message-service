@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["message"]
+}
+
+enum MessageType {
+    TEXT
+    IMAGE
+    VIDEO
+    AUDIO
+    FILE
+    GIF
+    STICKER
+    LOCATION
+
+    POLL // message contains polls or surveys
+    
+    @@schema("message")
+}
+
+model Message {
+    id BigInt @id @db.BigInt
+    sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+    senderId BigInt @db.BigInt 
+    receiver Conversation @relation(fields: [receiverId], references: [id], onDelete: Cascade)
+    receiverId BigInt @db.BigInt
+    content String @db.Text
+    type MessageType
+
+    attachments Attachment[]
+
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime? @map("updated_at")
+    deletedAt DateTime? @map("deleted_at")
+
+    @@map("message")
+    @@schema("message")
+}
+
+model Attachment {
+    id BigInt @id @db.BigInt
+    message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+    messageId BigInt @db.BigInt @map("message_id")
+    thumbUrl String @db.Text @map("thumb_url") // thumbnail for image or video
+    fileUrl String @db.Text @map("file_url")
+
+    deletedAt DateTime? @map("deleted_at")
+
+    @@map("attachment")
+    @@schema("message")
+}

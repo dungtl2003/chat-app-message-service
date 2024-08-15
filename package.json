@@ -1,0 +1,48 @@
+{
+    "name": "message",
+    "version": "1.0.0",
+    "description": "chat app's message service",
+    "main": "src/index.ts",
+    "scripts": {
+        "build": "npx tsc",
+        "start": "node dist/index.js",
+        "dev": "./scripts/run-dev.sh"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/dungtl2003/chat-app-chat-service.git"
+    },
+    "keywords": [
+        "chat-app",
+        "microservice",
+        "CRUD"
+    ],
+    "author": "dungtl2003",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/dungtl2003/chat-app-chat-service/issues"
+    },
+    "homepage": "https://github.com/dungtl2003/chat-app-chat-service#readme",
+    "dependencies": {
+        "@prisma/client": "^5.18.0",
+        "cors": "^2.8.5",
+        "express": "^4.19.2"
+    },
+    "devDependencies": {
+        "@types/chai": "^4.3.17",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "@types/mocha": "^10.0.7",
+        "@types/node": "^20.14.11",
+        "chai": "^5.1.1",
+        "eslint": "^9.7.0",
+        "eslint-config-prettier": "^9.1.0",
+        "lint-staged": "^15.2.7",
+        "mocha": "^10.7.3",
+        "mocha-junit-reporter": "^2.2.1",
+        "prisma": "^5.18.0",
+        "ts-mocha": "^10.0.0",
+        "tsx": "^4.17.0",
+        "typescript": "^5.5.3"
+    }
+}
