@@ -1,6 +1,9 @@
 import express, {Express} from "express";
 import {createServer, Server} from "node:http";
 import cors from "cors";
+import errorHandler from "@/utils/error-handler";
+import v1 from "@/api/v1";
+import {PrismaClient} from "@prisma/client";
 
 interface Option {
     port?: number;
@@ -13,11 +16,14 @@ class ExpressServer {
     private _server: Server;
     private _port: number;
 
-    public constructor(opts?: Option) {
+    public constructor(db: PrismaClient, opts?: Option) {
         this._app = express();
-        this._app.use(cors());
-
         this._port = opts?.port ?? ExpressServer.PORT;
+
+        this._app.use(cors());
+        this._app.use(errorHandler());
+        this._app.use("/api/v1", v1(db));
+
         this._server = createServer(this._app);
     }
 
@@ -35,10 +41,6 @@ class ExpressServer {
 
             console.log("[express server]: Stopped");
         });
-    }
-
-    public instance(): Server {
-        return this._server;
     }
 }
 

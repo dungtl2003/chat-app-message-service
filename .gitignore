@@ -66,5 +66,6 @@ package-lock.json
 /lib/
 
 .env
+.env.*
 test-results.xml
 dist

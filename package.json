@@ -4,9 +4,11 @@
     "description": "chat app's message service",
     "main": "src/index.ts",
     "scripts": {
+        "prepare": "husky",
         "build": "npx tsc",
         "start": "node dist/index.js",
-        "dev": "./scripts/run-dev.sh"
+        "dev": "ENV_PATH=.env.dev ./scripts/run.sh tsx ./src.index.ts",
+        "test": "ENV_PATH=.env.test ./scripts/run.sh mocha 'tests/**/*.spec.ts'"
     },
     "repository": {
         "type": "git",
@@ -26,9 +28,11 @@
     "dependencies": {
         "@prisma/client": "^5.18.0",
         "cors": "^2.8.5",
-        "express": "^4.19.2"
+        "express": "^4.19.2",
+        "express-async-handler": "^1.2.0"
     },
     "devDependencies": {
+        "husky": "^9.1.1",
         "@types/chai": "^4.3.17",
         "@types/cors": "^2.8.17",
         "@types/express": "^4.17.21",

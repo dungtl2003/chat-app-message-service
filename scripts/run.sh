@@ -5,6 +5,9 @@ ROOT_DIR="$SCRIPT_DIR/.."
 
 ENV_PATH=${ENV_PATH:-"$ROOT_DIR/.env"}
 
+command="$1"
+extraArgs="$2"
+
 export_envs() {
     readarray -t lines < $ENV_PATH
     for line in "${lines[@]}"; do
@@ -20,4 +23,7 @@ if [ -f ${ENV_PATH} ]; then
     echo
 fi
 
-tsx ./src/index.ts
+shopt -s globstar # for ** pattern matching
+eval "${command} ${extraArgs}"
+TEST_EXIT=$?
+echo

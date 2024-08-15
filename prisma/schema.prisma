@@ -6,13 +6,11 @@
 
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["message"]
 }
 
 enum MessageType {
@@ -26,15 +24,11 @@ enum MessageType {
     LOCATION
 
     POLL // message contains polls or surveys
-    
-    @@schema("message")
 }
 
 model Message {
     id BigInt @id @db.BigInt
-    sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
     senderId BigInt @db.BigInt 
-    receiver Conversation @relation(fields: [receiverId], references: [id], onDelete: Cascade)
     receiverId BigInt @db.BigInt
     content String @db.Text
     type MessageType
@@ -46,7 +40,6 @@ model Message {
     deletedAt DateTime? @map("deleted_at")
 
     @@map("message")
-    @@schema("message")
 }
 
 model Attachment {
@@ -59,5 +52,4 @@ model Attachment {
     deletedAt DateTime? @map("deleted_at")
 
     @@map("attachment")
-    @@schema("message")
 }
