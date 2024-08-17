@@ -1,0 +1,25 @@
+services:
+  id-generator-service-1:
+    container_name: id-generator-service-tls
+    image: ilikeblue/snowflake-uuid:dev-latest
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=id-generator'
+      - 'custom.option=tls'
+    ports:
+      - "9000:9000"
+    environment:
+      WORKER_ID: 1
+    command: -tls
+
+  id-generator-service:
+    container_name: id-generator-service-non-tls
+    image: ilikeblue/snowflake-uuid:dev-latest
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=id-generator'
+      - 'custom.option=non-tls'
+    ports:
+      - "9001:9000"
+    environment:
+      WORKER_ID: 2

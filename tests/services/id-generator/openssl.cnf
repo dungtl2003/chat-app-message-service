@@ -1,0 +1,36 @@
+[ req ]
+distinguished_name = req_distinguished_name
+attributes = req_attributes
+
+[ req_distinguished_name ]
+
+[ req_attributes ]
+
+[ ca ]
+basicConstraints = critical,CA:TRUE
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+keyUsage = critical,keyCertSign
+
+[ server ]
+basicConstraints = critical,CA:FALSE
+subjectKeyIdentifier = hash
+keyUsage = critical,digitalSignature,keyEncipherment,keyAgreement
+subjectAltName = @server_alt_names
+
+[ server_alt_names ]
+DNS.1 = chatapp.com
+DNS.2 = *.chatapp.com
+DNS.3 = localhost
+
+[ client ]
+basicConstraints = critical,CA:FALSE
+subjectKeyIdentifier = hash
+keyUsage = critical,nonRepudiation,digitalSignature,keyEncipherment
+extendedKeyUsage = critical,clientAuth
+subjectAltName = @client_alt_names
+
+[ client_alt_names ]
+DNS.1 = chatapp.com
+DNS.2 = *.chatapp.com
+DNS.3 = localhost

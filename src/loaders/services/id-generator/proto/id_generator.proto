@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = ".;pb";
+
+service IdGenerator {
+  rpc GenerateId(GenerateIdRequest) returns (GenerateIdResponse) {}
+}
+
+message GenerateIdRequest {}
+
+message GenerateIdResponse { int64 id = 1; }
