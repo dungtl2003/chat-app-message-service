@@ -1,20 +1,18 @@
 import IdGeneratorService from "@/loaders/services/id-generator/id-generator-service";
+import {ServiceStatus} from "@/loaders/services/service";
 import {execa} from "execa";
 import path from "path";
 
 describe("ID generator service", () => {
-    const TLS_PORT = 9000;
-    const NON_TLS_PORT = 9001;
+    const TLS_ENDPOINT = "localhost:9000";
+    const NON_TLS_ENDPOINT = "localhost:9001";
 
     let idGeneratorServiceTls: IdGeneratorService;
     let idGeneratorServiceNonTls: IdGeneratorService;
 
     before("init service", (done) => {
-        idGeneratorServiceNonTls = new IdGeneratorService({
-            port: NON_TLS_PORT,
-        });
-        idGeneratorServiceTls = new IdGeneratorService({
-            port: TLS_PORT,
+        idGeneratorServiceNonTls = new IdGeneratorService(NON_TLS_ENDPOINT, {});
+        idGeneratorServiceTls = new IdGeneratorService(TLS_ENDPOINT, {
             ssl: {
                 rootCert: path.resolve(
                     __dirname,
@@ -33,8 +31,8 @@ describe("ID generator service", () => {
 
         setTimeout(() => {
             if (
-                idGeneratorServiceTls.isConnected() &&
-                idGeneratorServiceNonTls.isConnected()
+                idGeneratorServiceTls.getStatus() &&
+                idGeneratorServiceNonTls.getStatus()
             ) {
                 done();
             } else {
@@ -72,27 +70,25 @@ describe("ID generator service", () => {
         try {
             await execa({shell: true})`${__dirname}/fake-cert-gen.sh`;
 
-            const fakeService = new IdGeneratorService({
+            const fakeService = new IdGeneratorService(TLS_ENDPOINT, {
                 debug: true,
-                port: TLS_PORT,
                 ssl: {
                     rootCert: path.resolve(__dirname, "fake_ca_cert.pem"),
                     clientCert: path.resolve(__dirname, "fake_client_cert.pem"),
                     clientKey: path.resolve(__dirname, "fake_client_key.pem"),
                 },
+                retries: 0,
+                initializeDeadlineInSeconds: 5,
             });
 
             await new Promise((resolve, reject) => {
                 setTimeout(() => {
-                    if (
-                        fakeService.isConnected() &&
-                        fakeService.isConnected()
-                    ) {
+                    if (fakeService.getStatus() !== ServiceStatus.INITIALIZED) {
                         reject("connected even with wrong certificates");
                     } else {
                         resolve("");
                     }
-                }, 5000);
+                }, 7000);
             });
         } catch (error) {
             console.debug(error);

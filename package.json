@@ -7,7 +7,7 @@
         "prepare": "husky",
         "build": "npx tsc",
         "start": "node dist/index.js",
-        "dev": "ENV_PATH=.env.dev ./scripts/run.sh tsx ./src.index.ts",
+        "dev": "ENV_PATH=.env.dev ./scripts/run.sh tsx ./src/index.ts",
         "test": "ENV_PATH=.env.test ./scripts/test-with-services.sh mocha 'tests/**/*.spec.ts'"
     },
     "repository": {

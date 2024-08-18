@@ -4,9 +4,12 @@ import cors from "cors";
 import errorHandler from "@/utils/error-handler";
 import v1 from "@/api/v1";
 import {PrismaClient} from "@prisma/client";
+import healthcheck from "@/api/healthcheck";
+import {Service} from "./services/service";
 
 interface Option {
     port?: number;
+    services?: Service[];
 }
 
 class ExpressServer {
@@ -23,6 +26,7 @@ class ExpressServer {
         this._app.use(cors());
         this._app.use(errorHandler());
         this._app.use("/api/v1", v1(db));
+        this._app.use("/api/health", healthcheck(opts?.services));
 
         this._server = createServer(this._app);
     }

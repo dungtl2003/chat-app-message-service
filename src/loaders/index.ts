@@ -4,9 +4,16 @@ import ExpressServer from "./express-server";
 import IdGeneratorService from "./services/id-generator/id-generator-service";
 
 export default () => {
-    const db = new PrismaClient();
-    const expressServer = new ExpressServer(db, {port: config.serverPort});
-    const idGeneratorService = new IdGeneratorService({debug: true});
+    const db = new PrismaClient({
+        errorFormat: "pretty",
+    });
+    const idGeneratorService = new IdGeneratorService("localhost:9000", {
+        debug: true,
+    });
+    const expressServer = new ExpressServer(db, {
+        port: config.serverPort,
+        services: [idGeneratorService],
+    });
 
     expressServer.listen();
 

@@ -5,9 +5,9 @@ import * as fs from "fs";
 import {ProtoGrpcType} from "./proto/id_generator";
 import {GenerateIdResponse__Output} from "./proto/proto/GenerateIdResponse";
 import {IdGeneratorClient} from "./proto/proto/IdGenerator";
+import {Service, ServiceStatus} from "../service";
 
 interface Option {
-    port?: number;
     protoFile?: string;
     ssl?: {
         rootCert: string;
@@ -15,17 +15,23 @@ interface Option {
         clientKey: string;
     };
     debug?: boolean;
+    initializeDeadlineInSeconds?: number;
+    retries?: number;
 }
 
-class IdGeneratorService {
-    private readonly PORT = 9000;
-
+class IdGeneratorService implements Service {
     private readonly _client: IdGeneratorClient;
     private readonly _debug: boolean;
-    private _connected: boolean;
+    private _status: ServiceStatus;
 
-    constructor(opt?: Option) {
-        this._connected = false;
+    constructor(idGeneratorServiceEndpoint: string, opt?: Option) {
+        if (opt && !this.validate(opt)) {
+            console.error("[id generator]: invalid options");
+            this._status = ServiceStatus.INITIALIZE_FAILED;
+            return;
+        }
+
+        this._status = ServiceStatus.INITIALIZING;
         this._debug = opt?.debug ?? false;
 
         const packageDef = protoLoader.loadSync(
@@ -38,7 +44,7 @@ class IdGeneratorService {
         ) as unknown as ProtoGrpcType;
 
         this._client = new grpcObj.proto.IdGenerator(
-            `localhost:${opt?.port ?? this.PORT}`,
+            idGeneratorServiceEndpoint,
             !opt?.ssl
                 ? grpc.credentials.createInsecure()
                 : grpc.credentials.createSsl(
@@ -48,29 +54,26 @@ class IdGeneratorService {
                   )
         );
 
-        const deadline = new Date();
-        deadline.setSeconds(deadline.getSeconds() + 5);
-        this._client.waitForReady(deadline, () => {
-            console.log("[id generator]: Ready");
-            this._connected = true;
-        });
+        this.connect(opt?.initializeDeadlineInSeconds ?? 5, opt?.retries ?? 5);
     }
 
-    public isConnected(): boolean {
-        return this._connected;
+    public getStatus(): ServiceStatus {
+        return this._status;
     }
 
     public disconnect() {
         console.log("[id generator]: Closed");
-        this._client.close();
+        if (this._status === ServiceStatus.INITIALIZED) {
+            this._client.close();
+        }
     }
 
     public generateId(callback: (error: boolean, id?: bigint) => void) {
         this._debug && console.debug("[id generator]: Requesting for ID...");
 
-        if (!this._connected) {
+        if (this._status !== ServiceStatus.INITIALIZED) {
             this._debug &&
-                console.debug("[id generator]: Server does not connect");
+                console.debug("[id generator]: Server isn't initialized");
             callback(true);
             return;
         }
@@ -90,6 +93,49 @@ class IdGeneratorService {
                 callback(false, BigInt(result!.id!.toString(10)));
             }
         );
+    }
+
+    private validate(opt: Option): boolean {
+        if (
+            opt.initializeDeadlineInSeconds &&
+            opt.initializeDeadlineInSeconds < 0
+        ) {
+            return false;
+        }
+
+        if (opt.retries && opt.retries < 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private async connect(
+        initializeDeadlineInSeconds: number,
+        retries: number
+    ) {
+        const deadline = new Date();
+        deadline.setSeconds(
+            deadline.getSeconds() + initializeDeadlineInSeconds
+        );
+
+        this._client.waitForReady(deadline, (err) => {
+            if (err) {
+                console.error(
+                    "[id generator]: Initialize failed. Error: ",
+                    err
+                );
+                if (retries > 0) {
+                    console.log("[id generator]: Retrying...");
+                    this.connect(initializeDeadlineInSeconds, retries - 1);
+                } else {
+                    this._status = ServiceStatus.INITIALIZE_FAILED;
+                }
+            } else {
+                console.log("[id generator]: Ready");
+                this._status = ServiceStatus.INITIALIZED;
+            }
+        });
     }
 }
 
