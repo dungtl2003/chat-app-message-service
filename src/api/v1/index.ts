@@ -1,8 +1,8 @@
 import express from "express";
 import listMessagesByConversationId from "./list-messages-by-conversation-id";
-import {PrismaClient} from "@prisma/client";
+import {DbClient} from "@/loaders/db/db";
 
-export default (db: PrismaClient) => {
+export default (db: DbClient) => {
     const router = express.Router();
 
     router.get(

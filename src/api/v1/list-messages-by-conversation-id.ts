@@ -1,4 +1,4 @@
-import {Message, Prisma, PrismaClient} from "@prisma/client";
+import {DbClient, Message} from "@/loaders/db/db";
 import {Request, Response} from "express";
 import expressAsyncHandler from "express-async-handler";
 
@@ -18,43 +18,30 @@ interface ReqQuery {
     orderBy?: "id:asc" | "id:desc";
 }
 
-function listMessagesByConversationId(db: PrismaClient) {
+function listMessagesByConversationId(db: DbClient) {
     return expressAsyncHandler(async function (
         request: Request<Params, unknown, unknown, ReqQuery>,
         response: Response<ResponseMessage>
     ): Promise<void> {
         const conversationId = request.params.conversationId;
         const {query} = request;
-        const orderBy = query.orderBy ?? "id:asc";
-        const [key, value] = orderBy.split(":");
-        const whereQuery: Prisma.MessageWhereInput = {
-            receiverId: conversationId,
-        };
 
-        if (query.after) {
-            switch (orderBy) {
-                case "id:desc":
-                    whereQuery.id = {
-                        lt: query.after,
-                    };
-                    break;
-                case "id:asc":
-                    whereQuery.id = {
-                        gt: query.after,
-                    };
-                    break;
+        const [error, messages] = await db.listMessagesByConversationId(
+            conversationId,
+            {
+                after: query.after,
+                limit: query.limit ? +query.limit + 1 : undefined, // we add 1 more to check if the database has more messages than the amount of messages we requested. Later, we will remove the extra one before returning the result
+                orderBy: query.orderBy,
             }
-        }
+        );
 
-        const messages = await db.message.findMany({
-            take: query.limit ? +query.limit + 1 : undefined, // we add 1 more to check if the database has more messages than the amount of messages we requested. Later, we will remove the extra one before returning the result
-            orderBy: {
-                [key]: value,
-            },
-            where: {
-                ...whereQuery,
-            },
-        });
+        if (error) {
+            console.error("Error: ", error);
+            response.status(500).send({
+                error: "server error",
+            });
+            return;
+        }
 
         const hasMore: boolean =
             query.limit !== undefined && messages.length > query.limit;

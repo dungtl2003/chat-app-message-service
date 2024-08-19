@@ -1,33 +1,34 @@
 import "@/patch";
 import ExpressServer from "@/loaders/express-server";
 import {getRandomInt} from "@/utils/helpers";
-import {Message, MessageType, PrismaClient} from "@prisma/client";
 import {assert} from "chai";
 import {ResponseMessage} from "@/api/v1/list-messages-by-conversation-id";
+import PrismaDb from "@/loaders/db/primsa/prisma-db";
+import {DbClient, Message} from "@/loaders/db/db";
 
 async function addTempMessages(
-    db: PrismaClient,
+    db: DbClient,
     size: number,
     conversationId: bigint
 ) {
     const tempMessages: Message[] = Array(size)
         .fill(0)
         .map((_, i) => {
-            return {
+            const message = {
                 id: BigInt(i),
                 senderId: BigInt(getRandomInt(1, 9999)),
                 receiverId: conversationId,
                 content: String(i),
-                type: MessageType.TEXT,
+                type: "TEXT",
                 createdAt: new Date(),
                 updatedAt: null,
                 deletedAt: null,
             } as Message;
+
+            return message;
         });
 
-    await db.message.createMany({
-        data: tempMessages,
-    });
+    await db.insertMessages(tempMessages);
 
     return tempMessages;
 }
@@ -36,11 +37,11 @@ describe("list messages by conversation ID endpoint", () => {
     const PORT = 8040;
     const API_VERSION = "v1";
 
-    let db: PrismaClient;
+    let db: PrismaDb;
     let expressServer: ExpressServer;
 
     before("init server", () => {
-        db = new PrismaClient();
+        db = new PrismaDb();
 
         expressServer = new ExpressServer(db, {port: PORT});
         expressServer.listen();
@@ -51,7 +52,7 @@ describe("list messages by conversation ID endpoint", () => {
     });
 
     afterEach("clean database", async () => {
-        await db.message.deleteMany();
+        await db.wipe("message");
     });
 
     it("should return all messages of the conversation in correct order if not specific limit or the limit is bigger than total existed messages", async () => {

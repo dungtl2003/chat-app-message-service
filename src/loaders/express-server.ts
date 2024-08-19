@@ -3,9 +3,9 @@ import {createServer, Server} from "node:http";
 import cors from "cors";
 import errorHandler from "@/utils/error-handler";
 import v1 from "@/api/v1";
-import {PrismaClient} from "@prisma/client";
 import healthcheck from "@/api/healthcheck";
 import {Service} from "./services/service";
+import {DbClient} from "./db/db";
 
 interface Option {
     port?: number;
@@ -19,7 +19,7 @@ class ExpressServer {
     private _server: Server;
     private _port: number;
 
-    public constructor(db: PrismaClient, opts?: Option) {
+    public constructor(db: DbClient, opts?: Option) {
         this._app = express();
         this._port = opts?.port ?? ExpressServer.PORT;
 
