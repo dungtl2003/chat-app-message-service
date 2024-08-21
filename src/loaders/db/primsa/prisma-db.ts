@@ -1,5 +1,6 @@
 import {$Enums, Prisma, PrismaClient} from "@prisma/client";
 import {DbClient, Message, MessageType, TableName} from "../db";
+import {ApiError} from "@/utils/types";
 
 class PrismaDb implements DbClient {
     private readonly _db;
@@ -8,7 +9,49 @@ class PrismaDb implements DbClient {
         this._db = new PrismaClient();
     }
 
-    public async wipe(table: TableName): Promise<unknown> {
+    public async getMessageById(
+        messageId: bigint
+    ): Promise<[ApiError, Message | null]> {
+        try {
+            const message = await this._db.message.findFirst({
+                where: {
+                    id: messageId,
+                },
+            });
+
+            if (!message) {
+                return [
+                    {
+                        status: 400,
+                        message: `message with ID ${messageId} does not exist in database`,
+                        detail: `message with ID ${messageId} does not exist in database`,
+                    },
+                    null,
+                ];
+            }
+
+            return [
+                null,
+                {
+                    id: message.id,
+                    senderId: message.senderId,
+                    receiverId: message.receiverId,
+                    content: message.content,
+                    type: message.type as MessageType,
+                    createdAt: message.createdAt.toJSON(),
+                    updatedAt: message.updatedAt?.toJSON(),
+                    deletedAt: message.deletedAt?.toJSON(),
+                } as Message,
+            ];
+        } catch (error) {
+            return [
+                {status: 500, message: "server error", detail: error},
+                null,
+            ];
+        }
+    }
+
+    public async wipe(table: TableName): Promise<ApiError> {
         try {
             switch (table) {
                 case "message":
@@ -21,11 +64,11 @@ class PrismaDb implements DbClient {
 
             return null;
         } catch (error) {
-            return error;
+            return {status: 500, message: "server error", detail: error};
         }
     }
 
-    public async insertMessage(message: Message): Promise<unknown> {
+    public async insertMessage(message: Message): Promise<ApiError> {
         try {
             await this._db.message.create({
                 data: {
@@ -41,11 +84,11 @@ class PrismaDb implements DbClient {
             });
             return null;
         } catch (error) {
-            return error;
+            return {status: 500, message: "server error", detail: error};
         }
     }
 
-    public async insertMessages(messages: Message[]): Promise<unknown> {
+    public async insertMessages(messages: Message[]): Promise<ApiError> {
         try {
             await this._db.message.createMany({
                 data: messages.map((message) => {
@@ -64,7 +107,7 @@ class PrismaDb implements DbClient {
 
             return null;
         } catch (error) {
-            return error;
+            return {status: 500, message: "server error", detail: error};
         }
     }
 
@@ -75,7 +118,7 @@ class PrismaDb implements DbClient {
             limit?: number;
             orderBy?: "id:asc" | "id:desc";
         }
-    ): Promise<[unknown, Message[]]> {
+    ): Promise<[ApiError | null, Message[]]> {
         const orderBy = query.orderBy ?? "id:asc";
         const [key, value] = orderBy.split(":");
         const whereQuery: Prisma.MessageWhereInput = {
@@ -117,14 +160,14 @@ class PrismaDb implements DbClient {
                         receiverId: msg.receiverId,
                         content: msg.content,
                         type: msg.type as MessageType,
-                        createdAt: msg.createdAt,
-                        updatedAt: msg.updatedAt,
-                        deletedAt: msg.deletedAt,
+                        createdAt: msg.createdAt.toJSON(),
+                        updatedAt: msg.updatedAt?.toJSON() ?? null,
+                        deletedAt: msg.deletedAt?.toJSON() ?? null,
                     } as Message;
                 }),
             ];
         } catch (error) {
-            return [error, []];
+            return [{status: 500, message: "server error", detail: error}, []];
         }
     }
 }

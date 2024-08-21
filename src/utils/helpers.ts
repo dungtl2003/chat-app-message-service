@@ -18,4 +18,18 @@ function getRandomInt(min: number, max: number): number {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-export {getRandomArbitrary, getRandomInt};
+function objectToString(o: {[s: string]: string[] | undefined}): string {
+    return (
+        "{" +
+        Object.entries(o)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(", ") +
+        "}"
+    );
+}
+
+function containsOnlyDigits(str: string): boolean {
+    return /^\d+$/.test(str);
+}
+
+export {getRandomArbitrary, getRandomInt, objectToString, containsOnlyDigits};

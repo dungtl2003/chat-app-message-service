@@ -20,7 +20,7 @@ async function addTempMessages(
                 receiverId: conversationId,
                 content: String(i),
                 type: "TEXT",
-                createdAt: new Date(),
+                createdAt: new Date().toJSON(),
                 updatedAt: null,
                 deletedAt: null,
             } as Message;
@@ -161,7 +161,7 @@ describe("list messages by conversation ID endpoint", () => {
             }
         );
 
-        assert.strictEqual(response.status, 500);
+        assert.strictEqual(response.status, 400);
     });
 
     it("should return correct amount of messages of the conversation in correct order", async () => {

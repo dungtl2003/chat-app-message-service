@@ -30,7 +30,8 @@
         "cors": "^2.8.5",
         "execa": "^9.3.1",
         "express": "^4.19.2",
-        "express-async-handler": "^1.2.0"
+        "express-async-handler": "^1.2.0",
+        "zod": "^3.23.8"
     },
     "devDependencies": {
         "@grpc/grpc-js": "^1.11.1",
