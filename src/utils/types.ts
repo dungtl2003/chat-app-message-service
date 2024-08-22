@@ -4,4 +4,8 @@ type ApiError = {
     message: string;
 } | null;
 
-export {ApiError};
+type Environment = "development" | "production";
+
+type Service = "ID generator" | "Express";
+
+export {ApiError, Environment, Service};

@@ -6,36 +6,46 @@ import {ProtoGrpcType} from "./proto/id_generator";
 import {GenerateIdResponse__Output} from "./proto/proto/GenerateIdResponse";
 import {IdGeneratorClient} from "./proto/proto/IdGenerator";
 import {Service, ServiceStatus} from "../service";
+import BaseLogger from "@/logging/logger";
+import {serializeError} from "serialize-error";
+import {Service as ServiceName} from "@/utils/types";
 
-interface Option {
+interface Configuration {
     protoFile?: string;
     ssl?: {
         rootCert: string;
         clientCert: string;
         clientKey: string;
     };
-    debug?: boolean;
     initializeDeadlineInSeconds?: number;
     retries?: number;
 }
 
 class IdGeneratorService implements Service {
     private readonly _client: IdGeneratorClient;
-    private readonly _debug: boolean;
+    private readonly _logger: BaseLogger | undefined;
     private _status: ServiceStatus;
 
-    constructor(idGeneratorServiceEndpoint: string, opt?: Option) {
-        if (opt && !this.validate(opt)) {
-            console.error("[id generator]: invalid options");
-            this._status = ServiceStatus.INITIALIZE_FAILED;
-            return;
+    constructor(
+        idGeneratorServiceEndpoint: string,
+        config?: Configuration,
+        logger?: BaseLogger
+    ) {
+        this._status = ServiceStatus.INITIALIZING;
+        this._logger = logger;
+
+        this._logger?.logTrace("Validating configs", {
+            service: "ID generator",
+        });
+        if (config && !this.validate(config)) {
+            this._logger?.logFatal("Invalid options", {
+                service: "ID generator",
+            });
+            process.exit(1);
         }
 
-        this._status = ServiceStatus.INITIALIZING;
-        this._debug = opt?.debug ?? false;
-
         const packageDef = protoLoader.loadSync(
-            opt?.protoFile ??
+            config?.protoFile ??
                 path.resolve(__dirname, "./proto/id_generator.proto")
         );
 
@@ -45,16 +55,25 @@ class IdGeneratorService implements Service {
 
         this._client = new grpcObj.proto.IdGenerator(
             idGeneratorServiceEndpoint,
-            !opt?.ssl
+            !config?.ssl
                 ? grpc.credentials.createInsecure()
                 : grpc.credentials.createSsl(
-                      fs.readFileSync(opt!.ssl!.rootCert),
-                      fs.readFileSync(opt!.ssl!.clientKey),
-                      fs.readFileSync(opt!.ssl!.clientCert)
+                      fs.readFileSync(config!.ssl!.rootCert),
+                      fs.readFileSync(config!.ssl!.clientKey),
+                      fs.readFileSync(config!.ssl!.clientCert)
                   )
         );
+        this._logger?.logDebug("Service configs", {
+            service: "ID generator",
+            config: {
+                ...config,
+            },
+        });
 
-        this.connect(opt?.initializeDeadlineInSeconds ?? 5, opt?.retries ?? 5);
+        this.connect(
+            config?.initializeDeadlineInSeconds ?? 5,
+            config?.retries ?? 5
+        );
     }
 
     public getStatus(): ServiceStatus {
@@ -62,18 +81,23 @@ class IdGeneratorService implements Service {
     }
 
     public disconnect() {
-        console.log("[id generator]: Closed");
+        this._logger?.logInfo("Closed", {
+            service: "ID generator",
+        });
         if (this._status === ServiceStatus.INITIALIZED) {
             this._client.close();
         }
     }
 
     public generateId(callback: (error: boolean, id?: bigint) => void) {
-        this._debug && console.debug("[id generator]: Requesting for ID...");
+        this._logger?.logTrace("Requesting for ID", {
+            service: "ID generator",
+        });
 
         if (this._status !== ServiceStatus.INITIALIZED) {
-            this._debug &&
-                console.debug("[id generator]: Server isn't initialized");
+            this._logger?.logError("Service isn't initialized", {
+                service: "ID generator",
+            });
             callback(true);
             return;
         }
@@ -85,17 +109,23 @@ class IdGeneratorService implements Service {
                 result: GenerateIdResponse__Output | undefined
             ) => {
                 if (err) {
-                    this._debug &&
-                        console.debug("[id generator]: Error: ", err);
+                    this._logger?.logError("Unexpected error", {
+                        service: "ID generator",
+                        error: serializeError(err),
+                    });
                     callback(true);
                 }
 
+                this._logger?.logDebug("Received ID", {
+                    service: "ID generator",
+                    "ID received": result!.id,
+                });
                 callback(false, BigInt(result!.id!.toString(10)));
             }
         );
     }
 
-    private validate(opt: Option): boolean {
+    private validate(opt: Configuration): boolean {
         if (
             opt.initializeDeadlineInSeconds &&
             opt.initializeDeadlineInSeconds < 0
@@ -112,7 +142,8 @@ class IdGeneratorService implements Service {
 
     private async connect(
         initializeDeadlineInSeconds: number,
-        retries: number
+        maxRetries: number,
+        attempt: number = 0
     ) {
         const deadline = new Date();
         deadline.setSeconds(
@@ -121,21 +152,35 @@ class IdGeneratorService implements Service {
 
         this._client.waitForReady(deadline, (err) => {
             if (err) {
-                console.error(
-                    "[id generator]: Initialize failed. Error: ",
-                    err
-                );
-                if (retries > 0) {
-                    console.log("[id generator]: Retrying...");
-                    this.connect(initializeDeadlineInSeconds, retries - 1);
+                this._logger?.logError("Failed to connect", {
+                    service: "ID generator",
+                    error: serializeError(err),
+                });
+                if (attempt < maxRetries) {
+                    attempt++;
+                    this._logger?.logDebug(`Retrying (${attempt})`, {
+                        service: "ID generator",
+                    });
+                    this.connect(
+                        initializeDeadlineInSeconds,
+                        maxRetries,
+                        attempt
+                    );
                 } else {
                     this._status = ServiceStatus.INITIALIZE_FAILED;
+                    process.exit(1);
                 }
             } else {
-                console.log("[id generator]: Ready");
+                this._logger?.logInfo("Service is ready", {
+                    service: "ID generator",
+                });
                 this._status = ServiceStatus.INITIALIZED;
             }
         });
+    }
+
+    public toJSON(): ServiceName {
+        return "ID generator";
     }
 }
 
