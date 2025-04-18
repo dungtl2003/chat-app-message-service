@@ -87,7 +87,7 @@ func New() *Server {
 		os.Exit(1)
 	}
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(fmt.Sprintf("0.0.0.0:%d", config.ServerPort)),
+		Addr:    fmt.Sprintf("0.0.0.0:%d", config.ServerPort),
 		Handler: router,
 	}
 

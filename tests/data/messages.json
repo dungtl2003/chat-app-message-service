@@ -1,0 +1,42 @@
+[
+    {
+        "id": "1001",
+        "content": "Hey, how are you?",
+        "type": "TEXT",
+        "sender_id": "4",
+        "receiver_id": "2",
+        "created_at": "2025-04-17T10:00:00Z"
+    },
+    {
+        "id": "1002",
+        "content": "Check out this photo!",
+        "type": "IMAGE",
+        "sender_id": "5",
+        "receiver_id": "2",
+        "created_at": "2025-04-17T10:02:00Z"
+    },
+    {
+        "id": "1003",
+        "content": "Let's meet at the cafe on 5th street.",
+        "type": "TEXT",
+        "sender_id": "6",
+        "receiver_id": "2",
+        "created_at": "2025-04-17T10:05:00Z"
+    },
+    {
+        "id": "1004",
+        "content": "Here's the audio clip from the interview.",
+        "type": "AUDIO",
+        "sender_id": "3",
+        "receiver_id": "3",
+        "created_at": "2025-04-17T10:07:00Z"
+    },
+    {
+        "id": "1005",
+        "content": "This video might help with the project.",
+        "type": "VIDEO",
+        "sender_id": "8",
+        "receiver_id": "3",
+        "created_at": "2025-04-17T10:09:00Z"
+    }
+]

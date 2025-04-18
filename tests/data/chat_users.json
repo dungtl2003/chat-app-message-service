@@ -1,0 +1,66 @@
+[
+    {
+        "id": "9223372036854775800",
+        "email": "admin@gmail.com",
+        "username": "admin",
+        "password": "adminpassword",
+        "role": "ADMIN",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "2",
+        "email": "normaluser@gmail.com",
+        "username": "normaluser2",
+        "password": "normalpassword",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "3",
+        "email": "normaluser3@gmail.com",
+        "username": "normaluser3",
+        "password": "normalpassword3",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "4",
+        "email": "normaluser4@gmail.com",
+        "username": "normaluser4",
+        "password": "normalpassword4",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "5",
+        "email": "normaluser5@gmail.com",
+        "username": "normaluser5",
+        "password": "normalpassword5",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "6",
+        "email": "normaluser6@gmail.com",
+        "username": "normaluser6",
+        "password": "normalpassword6",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "7",
+        "email": "normaluser7@gmail.com",
+        "username": "normaluser7",
+        "password": "normalpassword7",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    },
+    {
+        "id": "8",
+        "email": "normaluser8@gmail.com",
+        "username": "normaluser8",
+        "password": "normalpassword8",
+        "role": "USER",
+        "created_at": "2025-04-15T10:00:00Z"
+    }
+]

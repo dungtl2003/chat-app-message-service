@@ -1,0 +1,66 @@
+services:
+  snowflake:
+    container_name: chat-app-snowflake-service
+    image: ilikeblue/snowflake-uuid:dev-latest
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=snowflake'
+    ports:
+      - "9000:80"
+    environment:
+      - WORKER_ID=1
+      - CERT_DIR=/etc/chat-app/ssl/certs
+    volumes:
+      - ../environments/dev/snowflake/ssl/certs:/etc/chat-app/ssl/certs:ro 
+    networks:
+      - chat-app-snowflake-network
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", 
+        "-addr=:80", 
+        "-tls", 
+        "-tls-ca-cert=/etc/chat-app/ssl/certs/ca_cert.pem", 
+        "-tls-client-cert=/etc/chat-app/ssl/certs/client_cert.pem", 
+        "-tls-client-key=/etc/chat-app/ssl/certs/client_key.pem"
+      ]
+      retries: 5
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+
+  pgdb:
+    container_name: chat-app-db-service
+    image: postgres:13.5
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=database'
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=testpass123
+      - POSTGRES_DB=chat-app
+    ports:
+      - "6000:5432"
+    volumes:
+      - chat-app-db-data:/var/lib/postgresql/data
+    networks:
+      - chat-app-db-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin", "-d", "chat-app"]
+      retries: 5
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+
+volumes:
+  chat-app-db-data:
+    external: true
+    name: test_chat-app-db-data
+
+networks:
+  chat-app-db-network:
+    driver: bridge
+    name: chat-app-db-network
+  chat-app-snowflake-network:
+    driver: bridge
+    name: chat-app-snowflake-network
