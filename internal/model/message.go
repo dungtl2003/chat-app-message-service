@@ -1,6 +1,8 @@
 package model
 
-import "dungtl2003/chat-app-message-service/internal/types"
+import (
+	"dungtl2003/chat-app-message-service/internal/types"
+)
 
 type MessageType string
 
@@ -25,6 +27,8 @@ type Message struct {
 	DeletedAt  types.JsonNullTime `json:"deleted_at"`
 	SenderId   types.JsonInt64    `json:"sender_id"`
 	ReceiverId types.JsonInt64    `json:"receiver_id"`
+
+	Attachments []Attachment `json:"attachments"`
 }
 
 func IsMessageType(s string) bool {

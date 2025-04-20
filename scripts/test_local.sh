@@ -22,6 +22,7 @@ ID_GENERATOR_SERVICE_CERT_DIR=${ID_GENERATOR_SERVICE_CERT_DIR:-"$ROOT_DIR/enviro
 
 # Test's specific environment variables
 ADMIN_DATABASE_URL=${ADMIN_DATABASE_URL:-"postgresql://admin:testpass123@localhost:6000/chat-app?sslmode=disable"}
+MESSAGE_SERVICE_URL=${MESSAGE_SERVICE_URL:-"http://localhost:$PORT"}
 
 command="$1"
 extraArgs="${@:2}"
@@ -52,11 +53,13 @@ function export_envs() {
 
     printf "export ADMIN_DATABASE_URL=%s\n" $ADMIN_DATABASE_URL
     export ADMIN_DATABASE_URL
+    printf "export MESSAGE_SERVICE_URL=%s\n" $MESSAGE_SERVICE_URL
+    export MESSAGE_SERVICE_URL 
 }
 
 function main() {
     export_envs
-    NO_ENV_FILE=1 $SCRIPT_DIR/run_with_services.sh "$command" $extraArgs
+    $SCRIPT_DIR/run_with_services.sh "$command" $extraArgs
 }
 
 main

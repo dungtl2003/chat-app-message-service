@@ -78,7 +78,13 @@ func New() *Server {
 		},
 	}
 
-	privateHandlers := []router.Handler{}
+	privateHandlers := []router.Handler{
+		{
+			Method: router.GET,
+			Path:   "/messages",
+			H:      api.GetMessages(appCtx),
+		},
+	}
 
 	// Create a new router
 	router, err := router.New(loggerWrapper, publicHandlers, privateHandlers)

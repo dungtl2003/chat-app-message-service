@@ -17,16 +17,26 @@ type SnowflakeConfig struct {
 }
 
 type Helper struct {
-	Db              *database.Database
-	Client          *httpclient.HttpClient
-	Logger          *logging.LoggerWrapper
-	SnowflakeConfig *SnowflakeConfig
+	Db                *database.Database
+	Client            *httpclient.HttpClient
+	Logger            *logging.LoggerWrapper
+	SnowflakeConfig   *SnowflakeConfig
+	MessageServiceURL string
 }
+
+const (
+	JWT_USER_ID_2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJKV1QiLCJzdWIiOiIyIiwidXNlcm5hbWUiOiJub3JtYWx1c2VyMiIsImF1ZCI6WyJVU0VSIl0sImlhdCI6MTcwNjg3MDQwMCwiZXhwIjoxNzA2ODc0MDAwfQ.lMIp-_eJCfAvmJ2H8KoR0DV3UNKhwEYR9trUQ4BdRGk"
+)
 
 func NewHelper() *Helper {
 	config, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("config.LoadConfig(): %v", err)
+	}
+
+	dbURL, has := os.LookupEnv("ADMIN_DATABASE_URL")
+	if !has {
+		log.Fatalf("Error when getting ADMIN_DATABASE_URL")
 	}
 
 	logger, err := logging.NewLogger(config.LogConfig.Level, config.LogConfig.Kind)
@@ -38,10 +48,11 @@ func NewHelper() *Helper {
 		log.Fatalf("logging.NewLoggerWrapper(): %v", err)
 	}
 
-	dbURL, has := os.LookupEnv("ADMIN_DATABASE_URL")
+	msgServiceURL, has := os.LookupEnv("MESSAGE_SERVICE_URL")
 	if !has {
-		log.Fatalf("Error when getting ADMIN_DATABASE_URL")
+		log.Fatalf("Error when getting MESSAGE_SERVICE_URL")
 	}
+
 	db, err := database.New(dbURL, loggerWrapper)
 	if err != nil {
 		log.Fatalf("Error when creating admin database: %v", err)
@@ -63,6 +74,7 @@ func NewHelper() *Helper {
 			Addr:    config.SnowflakeConfig.Addr,
 			CertDir: config.SnowflakeConfig.CertDir,
 		},
+		MessageServiceURL: msgServiceURL,
 	}
 
 	return helper
