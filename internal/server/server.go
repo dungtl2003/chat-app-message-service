@@ -84,6 +84,12 @@ func New() *Server {
 			Path:   "/messages",
 			H:      api.GetMessages(appCtx),
 		},
+
+		{
+			Method: router.POST,
+			Path:   "/messages",
+			H:      api.CreateMessage(appCtx),
+		},
 	}
 
 	// Create a new router

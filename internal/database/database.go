@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	_ "github.com/lib/pq" // postgresql driver support
@@ -46,6 +47,106 @@ func (d *Database) Close() error {
 		d.logger.Info("database connection closed")
 		return nil
 	}
+}
+
+// CreateMessage create a new message. It will return the created message, status
+// and error if occurs.
+// The status code is 200 if the operation is done successfully.
+// The status code is 500 database error occurs.
+func (d *Database) CreateMessage(message model.Message) (*model.Message, int, error) {
+	tx, err := d.client.Begin()
+	if err != nil {
+		d.logger.Errorfln("client.Begin(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := `
+		INSERT INTO message.message (
+			id, content, type, created_at, updated_at, deleted_at, sender_id, receiver_id
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		);`
+	args := []any{message.Id, message.Content, message.Type, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.SenderId, message.ReceiverId}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	_, err = tx.Exec(query, args...)
+	if err != nil {
+		d.logger.Errorfln("tx.Exec(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	fields := reflect.Indirect(reflect.ValueOf(model.Attachment{})).Type().NumField()
+	args = make([]any, len(message.Attachments)*fields)
+	argsCount := 1
+	values := make([]string, len(message.Attachments))
+	for i, attachment := range message.Attachments {
+		values[i] = fmt.Sprintf(`($%d, $%d, $%d, $%d, $%d)`, argsCount, argsCount+1, argsCount+2, argsCount+3, argsCount+4)
+		args[argsCount-1] = attachment.Id
+		args[argsCount] = attachment.ThumbURL
+		args[argsCount+1] = attachment.FileURL
+		args[argsCount+2] = attachment.DeletedAt
+		args[argsCount+3] = attachment.MessageId
+		argsCount += 5
+	}
+	query = fmt.Sprintf(`
+		INSERT INTO message.attachment (
+			id, thumb_url, file_url, deleted_at, message_id
+		) VALUES %s;
+	`, strings.Join(values, ", "))
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	_, err = tx.Exec(query, args...)
+	if err != nil {
+		d.logger.Errorfln("tx.Exec(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	query = `
+		SELECT 
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
+		    COALESCE(
+            	json_agg(
+                	json_build_object(
+                    	'id', a.id,
+						'thumb_url', a.thumb_url,
+						'file_url', a.file_url,
+						'deleted_at', a.deleted_at
+                	)
+            	) FILTER (WHERE a.id IS NOT NULL), '[]'
+        	) AS attachments
+    	FROM message.message m
+    	LEFT JOIN message.attachment a ON m.id = a.message_id
+    	WHERE m.id = $1
+    	GROUP BY m.id;
+	`
+	args = []any{message.Id}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	var msg model.Message
+	var rawAttachments json.RawMessage
+	messageRow := tx.QueryRow(query, args...)
+	err = messageRow.Scan(&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &rawAttachments)
+	if err != nil {
+		d.logger.Errorfln("messageRow.Scan(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	err = json.Unmarshal(rawAttachments, &msg.Attachments)
+	if err != nil {
+		d.logger.Errorfln("json.Unmarshal(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		d.logger.Errorfln("tx.Commit(): %v", err)
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
+	return &msg, http.StatusCreated, nil
 }
 
 // GetMessages get messsages from a conversation. You can filter it by:

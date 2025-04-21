@@ -38,7 +38,7 @@ proto:
 	protoc --proto_path=proto proto/*.proto  --go_out=:internal/services/snowflake/proto --go-grpc_out=:internal/services/snowflake/proto
 
 .PHONY: run
-run: build certs
+run: build
 	echo "Running application"
 	./scripts/run.sh $(OUT_FILE)
 
@@ -60,3 +60,13 @@ clean:
 certs:
 	@echo "Generating certs"	
 	./scripts/gen_certs.sh
+
+.PHONY: up_% certs
+up_%:
+	$(info ==================== up docker compose ====================)
+	docker-compose -f compose/docker-compose.$*.yaml up -d
+
+.PHONY: down_%
+down_%:
+	$(info ==================== down docker compose ====================)
+	docker-compose -f compose/docker-compose.$*.yaml down

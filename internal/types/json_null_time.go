@@ -57,6 +57,14 @@ func (j *JsonNullTime) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func DefaultJsonNullTime() JsonNullTime {
+	return JsonNullTime{
+		sql.NullTime{
+			Valid: false,
+		},
+	}
+}
+
 func NewJsonNullTime(t time.Time) JsonNullTime {
 	return JsonNullTime{
 		sql.NullTime{
