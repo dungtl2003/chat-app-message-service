@@ -80,7 +80,7 @@ func (d *Database) CreateMessage(message model.Message) (*model.Message, int, er
 		return nil, http.StatusInternalServerError, ErrDatabaseError
 	}
 
-	fields := reflect.Indirect(reflect.ValueOf(model.Attachment{})).Type().NumField()
+	fields := reflect.Indirect(reflect.ValueOf(model.Attachment{})).Type().NumField() + 1 // count message ID as well
 	args = make([]any, len(message.Attachments)*fields)
 	argsCount := 1
 	values := make([]string, len(message.Attachments))
@@ -90,7 +90,7 @@ func (d *Database) CreateMessage(message model.Message) (*model.Message, int, er
 		args[argsCount] = attachment.ThumbURL
 		args[argsCount+1] = attachment.FileURL
 		args[argsCount+2] = attachment.DeletedAt
-		args[argsCount+3] = attachment.MessageId
+		args[argsCount+3] = message.Id
 		argsCount += 5
 	}
 	query = fmt.Sprintf(`
@@ -202,7 +202,7 @@ func (d *Database) GetMessages(conversationId int64, after types.Optional[int64]
 
 	query := fmt.Sprintf(`
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, receiver_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
@@ -231,7 +231,7 @@ func (d *Database) GetMessages(conversationId int64, after types.Optional[int64]
 	var rawAttachments json.RawMessage
 	for messageRows.Next() {
 		message := model.Message{}
-		err = messageRows.Scan(&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &rawAttachments)
+		err = messageRows.Scan(&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &rawAttachments)
 		if err != nil {
 			d.logger.Errorfln("messageRows.Scan(): %v", err)
 			return nil, false, http.StatusInternalServerError, ErrDatabaseError

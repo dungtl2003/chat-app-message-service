@@ -63,6 +63,7 @@ func TestGetMessagesShouldWork(t *testing.T) {
 		require.EqualValues(t, expected.Content, actual.Content)
 		require.EqualValues(t, expected.Type, actual.Type)
 		require.EqualValues(t, expected.SenderId, actual.SenderId)
+		require.EqualValues(t, expected.ReceiverId, actual.ReceiverId)
 	}
 }
 
@@ -137,6 +138,7 @@ func TestGetMessagesWithDifferentLimitsShouldWork(t *testing.T) {
 				require.EqualValues(t, expected.Content, actual.Content)
 				require.EqualValues(t, expected.Type, actual.Type)
 				require.EqualValues(t, expected.SenderId, actual.SenderId)
+				require.EqualValues(t, expected.ReceiverId, actual.ReceiverId)
 			}
 		})
 	}
@@ -228,6 +230,7 @@ func TestGetMessagesWithDifferentOrdersShouldWork(t *testing.T) {
 				require.EqualValues(t, expected.Content, actual.Content)
 				require.EqualValues(t, expected.Type, actual.Type)
 				require.EqualValues(t, expected.SenderId, actual.SenderId)
+				require.EqualValues(t, expected.ReceiverId, actual.ReceiverId)
 			}
 		})
 	}
@@ -294,6 +297,7 @@ func TestGetMessagesWithDifferentIdOffsetsShouldWork(t *testing.T) {
 				require.EqualValues(t, expected.Content, actual.Content)
 				require.EqualValues(t, expected.Type, actual.Type)
 				require.EqualValues(t, expected.SenderId, actual.SenderId)
+				require.EqualValues(t, expected.ReceiverId, actual.ReceiverId)
 			}
 		})
 	}
@@ -378,6 +382,7 @@ func TestGetMessagesWithAllOptsShouldWork(t *testing.T) {
 				require.EqualValues(t, expected.Content, actual.Content)
 				require.EqualValues(t, expected.Type, actual.Type)
 				require.EqualValues(t, expected.SenderId, actual.SenderId)
+				require.EqualValues(t, expected.ReceiverId, actual.ReceiverId)
 			}
 		})
 	}

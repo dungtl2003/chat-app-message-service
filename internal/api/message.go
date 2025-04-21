@@ -123,7 +123,7 @@ func GetMessages(appCtx *context.AppContext) gin.HandlerFunc {
 		messages, hasMore, status, err := appCtx.Database.GetMessages(conversationId, *optionalAfter, *optionalLimit, *optionalOrderBy)
 		if err != nil {
 			appCtx.Logger.Debugfln("Database.GetMessages(): %v", err)
-			c.JSON(status, gin.H{"error": err})
+			c.JSON(status, gin.H{"error": fmt.Sprintf("%v", err)})
 			c.Abort()
 			return
 		}
@@ -172,7 +172,6 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 				ThumbURL:  attachment.ThumbURL,
 				FileURL:   attachment.FileURL,
 				DeletedAt: types.DefaultJsonNullTime(),
-				MessageId: types.NewJsonInt64(messageId),
 			}
 		}
 
@@ -192,7 +191,7 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 		msg, status, err := appCtx.Database.CreateMessage(message)
 		if err != nil {
 			appCtx.Logger.Debugfln("Database.CreateMessage(): %v", err)
-			c.JSON(status, gin.H{"error": err})
+			c.JSON(status, gin.H{"error": fmt.Sprintf("%v", err)})
 			c.Abort()
 			return
 		}

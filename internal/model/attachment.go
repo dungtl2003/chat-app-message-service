@@ -7,5 +7,4 @@ type Attachment struct {
 	ThumbURL  string             `json:"thumb_url"`
 	FileURL   string             `json:"file_url"`
 	DeletedAt types.JsonNullTime `json:"deleted_at"`
-	MessageId types.JsonInt64    `json:"message_id"`
 }
