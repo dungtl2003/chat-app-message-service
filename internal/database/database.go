@@ -236,6 +236,13 @@ func (d *Database) GetMessages(conversationId int64, after types.Optional[int64]
 			d.logger.Errorfln("messageRows.Scan(): %v", err)
 			return nil, false, http.StatusInternalServerError, ErrDatabaseError
 		}
+
+		err = json.Unmarshal(rawAttachments, &message.Attachments)
+		if err != nil {
+			d.logger.Errorfln("json.Unmarshal(): %v", err)
+			return nil, false, http.StatusInternalServerError, ErrDatabaseError
+		}
+
 		messages = append(messages, message)
 	}
 
