@@ -70,3 +70,72 @@ up_%:
 down_%:
 	$(info ==================== down docker compose ====================)
 	docker-compose -f compose/docker-compose.$*.yaml down
+
+_dbuilder:
+	$(info ==================== building dockerfile ====================)
+	docker buildx build --platform linux/amd64 --tag ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} .
+
+_dbuilder_debug:
+	$(info ==================== building dockerfile with debug on ====================)
+	docker buildx build --debug --progress=plain --no-cache --platform linux/amd64 --tag ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} . 
+
+_dpusher:
+	$(info ==================== pushing dockerfile ====================)
+	docker push ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG}
+
+_dreleaser:
+	$(info ==================== releasing dockerfile ====================)
+	docker pull ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG}
+	docker tag  ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_RELEASE_TAG}
+	docker push ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_RELEASE_TAG}
+
+.PHONY: dbuild
+dbuild:
+	$(MAKE) _dbuilder
+ 
+.PHONY: dpush
+dpush:
+	$(MAKE) _dpusher
+ 
+.PHONY: drelease
+drelease:
+	$(MAKE) _dreleaser
+
+.PHONY: dbuild_debug
+dbuild_debug:
+	$(MAKE) _dbuilder_debug
+
+.PHONY: dbuild_%
+dbuild_%: 
+	$(MAKE) _dbuilder \
+		-e _BUILD_ARGS_TAG="$*-${GIT_HASH}" \
+		-e _BUILD_ARGS_DOCKERFILE="Dockerfile.$*"
+
+.PHONY: dbuild_debug_%
+dbuild_debug_%:
+	$(MAKE) _dbuilder_debug \
+		-e _BUILD_ARGS_TAG="$*-${GIT_HASH}" \
+		-e _BUILD_ARGS_DOCKERFILE="Dockerfile.$*"
+ 
+.PHONY: dpush_%
+dpush_%:
+	$(MAKE) _dpusher \
+		-e _BUILD_ARGS_TAG="$*-${GIT_HASH}"
+ 
+.PHONY: drelease_%
+drelease_%:
+	$(MAKE) _dreleaser \
+		-e _BUILD_ARGS_TAG="$*-${GIT_HASH}" \
+		-e _BUILD_ARGS_RELEASE_TAG="$*-latest"
+
+.PHONY: clean_image
+clean_image:
+	$(info ==================== cleaning dangling images ====================)
+	docker images --filter "dangling=true" --filter "reference=${DOCKER_IMAGE_NAME}" -q | xargs -r docker rmi
+
+.PHONY: ci_%
+ci_%:
+	$(MAKE) dbuild_$*
+	$(MAKE) dpush_$*
+	$(MAKE) drelease_$*
+	$(MAKE) clean_image
