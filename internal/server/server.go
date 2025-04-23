@@ -81,8 +81,8 @@ func New() *Server {
 	privateHandlers := []router.Handler{
 		{
 			Method: router.GET,
-			Path:   "/messages",
-			H:      api.GetMessages(appCtx),
+			Path:   "/conversations/:conversation-id/messages",
+			H:      api.GetMessagesByConvID(appCtx),
 		},
 
 		{

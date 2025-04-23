@@ -29,9 +29,9 @@ type PostMessageRequestBody struct {
 	Attachments []PostAttachmentRequestBody `json:"attachments"`
 }
 
-func GetMessages(appCtx *context.AppContext) gin.HandlerFunc {
+func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		conversationIdStr := c.Query("conversation_id")
+		conversationIdStr := c.Param("conversation-id")
 		afterStr := c.Query("after")
 		limitStr := c.Query("limit")
 		orderBy := c.Query("order_by")

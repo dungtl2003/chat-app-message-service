@@ -41,7 +41,7 @@ func TestGetMessagesShouldWork(t *testing.T) {
 		return presetMessages[i].Id.Int64() > presetMessages[j].Id.Int64()
 	})
 
-	url := fmt.Sprintf("%s/messages?conversation_id=%d", helper.MessageServiceURL, convId)
+	url := fmt.Sprintf("%s/conversations/%d/messages", helper.MessageServiceURL, convId)
 
 	header := http.Header{
 		"Content-Type":  {"application/json"},
@@ -116,7 +116,7 @@ func TestGetMessagesWithDifferentLimitsShouldWork(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(fmt.Sprintf("limit: %d, hasMore: %t, expectedMesssages: %#v", tc.limit, tc.hasMore, tc.expectedMessages), func(t *testing.T) {
-			url := fmt.Sprintf("%s/messages?conversation_id=%d&limit=%d", helper.MessageServiceURL, convId, tc.limit)
+			url := fmt.Sprintf("%s/conversations/%d/messages?limit=%d", helper.MessageServiceURL, convId, tc.limit)
 			header := http.Header{
 				"Content-Type":  {"application/json"},
 				"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
@@ -204,7 +204,7 @@ func TestGetMessagesWithDifferentOrdersShouldWork(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(fmt.Sprintf("orderBy: %s", tc.orderBy), func(t *testing.T) {
-			url := fmt.Sprintf("%s/messages?conversation_id=%d&order_by=%s", helper.MessageServiceURL, convId, tc.orderBy)
+			url := fmt.Sprintf("%s/conversations/%d/messages?order_by=%s", helper.MessageServiceURL, convId, tc.orderBy)
 			header := http.Header{
 				"Content-Type":  {"application/json"},
 				"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
@@ -274,7 +274,7 @@ func TestGetMessagesWithDifferentIdOffsetsShouldWork(t *testing.T) {
 				return msg.Id.Int64() > after
 			})
 
-			url := fmt.Sprintf("%s/messages?conversation_id=%d&after=%d", helper.MessageServiceURL, convId, after)
+			url := fmt.Sprintf("%s/conversations/%d/messages?after=%d", helper.MessageServiceURL, convId, after)
 			header := http.Header{
 				"Content-Type":  {"application/json"},
 				"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
@@ -358,7 +358,7 @@ func TestGetMessagesWithAllOptsShouldWork(t *testing.T) {
 		}
 
 		t.Run(fmt.Sprintf("after: %d, limit: %d, orderBy: %s, hasMore: %t", after, limit, orderBy, hasMore), func(t *testing.T) {
-			url := fmt.Sprintf("%s/messages?conversation_id=%d&after=%d&limit=%d&order_by=%s", helper.MessageServiceURL, convId, after, limit, orderBy)
+			url := fmt.Sprintf("%s/conversations/%d/messages?after=%d&limit=%d&order_by=%s", helper.MessageServiceURL, convId, after, limit, orderBy)
 			header := http.Header{
 				"Content-Type":  {"application/json"},
 				"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
@@ -399,21 +399,23 @@ func TestGetMessagesWithInvalidOptsShouldFail(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	params := []string{"", "abc", "2", "2", "2", "2", "2", "2", "2"}
+
 	queries := []string{
-		"", // missing conv ID
-		"?conversation_id=abc",
-		"?conversation_id=2&after=abc",
-		"?conversation_id=2&after=-1",
-		"?conversation_id=2&limit=abc",
-		"?conversation_id=2&limit=-1",
-		"?conversation_id=2&order_by=abc",
-		"?conversation_id=2&order_by=abc:asc",
-		"?conversation_id=2&order_by=id:DESC",
+		"",
+		"",
+		"?after=abc",
+		"?after=-1",
+		"?limit=abc",
+		"?limit=-1",
+		"?order_by=abc",
+		"?order_by=abc:asc",
+		"?order_by=id:DESC",
 	}
 
-	for _, query := range queries {
+	for param, query := range h.Zip(params, queries) {
 		t.Run(fmt.Sprintf("query: %s", query), func(t *testing.T) {
-			url := fmt.Sprintf("%s/messages%s", helper.MessageServiceURL, query)
+			url := fmt.Sprintf("%s/conversations/%s/messages%s", helper.MessageServiceURL, param, query)
 			header := http.Header{
 				"Content-Type":  {"application/json"},
 				"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
