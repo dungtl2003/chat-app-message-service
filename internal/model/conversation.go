@@ -7,8 +7,8 @@ import (
 type ConversationType string
 
 const (
-	PRIVATE ConversationType = "PRIVATE"
-	GROUP   ConversationType = "GROUP"
+	DIRECT ConversationType = "DIRECT"
+	GROUP  ConversationType = "GROUP"
 )
 
 type Conversation struct {
@@ -16,9 +16,11 @@ type Conversation struct {
 	Type      ConversationType   `json:"type"`
 	CreatedAt types.JsonTime     `json:"created_at"`
 	DeletedAt types.JsonNullTime `json:"deleted_at"`
-	CreatorId types.JsonInt64    `json:"creator_id"`
+
+	Group        *GroupChat    `json:"group"`
+	Participants []Participant `json:"participants"`
 }
 
 func IsConversationType(s string) bool {
-	return s == string(PRIVATE) || s == string(GROUP)
+	return s == string(DIRECT) || s == string(GROUP)
 }

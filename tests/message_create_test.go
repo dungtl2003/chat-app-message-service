@@ -4,6 +4,7 @@ import (
 	"bytes"
 	h "dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/model"
+	"dungtl2003/chat-app-message-service/internal/services/database"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,12 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	USERS__MESSAGE__CREATE_FILENAME = "chat_users__message__create_test.json"
+	CONVS__MESSAGE__CREATE_FILENAME = "conversations__message__create_test.json"
+)
+
 func TestCreateMessageShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__CREATE_FILENAME,
+		ConversationFile: CONVS__MESSAGE__CREATE_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)

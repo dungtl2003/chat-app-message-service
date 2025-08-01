@@ -3,6 +3,7 @@ package tests
 import (
 	h "dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/model"
+	"dungtl2003/chat-app-message-service/internal/services/database"
 	"fmt"
 	"math"
 	"net/http"
@@ -17,12 +18,22 @@ type GetMessagesResponseBody struct {
 	Data    []model.Message `json:"data"`
 }
 
+const (
+	USERS__MESSAGE__GET_FILENAME = "chat_users__message__get_test.json"
+	CONVS__MESSAGE__GET_FILENAME = "conversations__message__get_test.json"
+	MSGS__MESSAGE__GET_FILENAME  = "messages__message__get_test.json"
+)
+
 func TestGetMessagesShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)
@@ -69,10 +80,14 @@ func TestGetMessagesShouldWork(t *testing.T) {
 
 func TestGetMessagesWithDifferentLimitsShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)
@@ -146,10 +161,14 @@ func TestGetMessagesWithDifferentLimitsShouldWork(t *testing.T) {
 
 func TestGetMessagesWithDifferentOrdersShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)
@@ -238,10 +257,14 @@ func TestGetMessagesWithDifferentOrdersShouldWork(t *testing.T) {
 
 func TestGetMessagesWithDifferentIdOffsetsShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)
@@ -305,10 +328,14 @@ func TestGetMessagesWithDifferentIdOffsetsShouldWork(t *testing.T) {
 
 func TestGetMessagesWithAllOptsShouldWork(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)
@@ -390,10 +417,14 @@ func TestGetMessagesWithAllOptsShouldWork(t *testing.T) {
 
 func TestGetMessagesWithInvalidOptsShouldFail(t *testing.T) {
 	helper := NewHelper()
-	err := helper.Db.Snapshot()
+	err := helper.CreateTemporaryData(database.DataFile{
+		UserFile:         USERS__MESSAGE__GET_FILENAME,
+		ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+		MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+	})
 	require.NoError(t, err)
 	defer func() {
-		err := helper.Db.Rollback()
+		err := helper.ClearAllData()
 		require.NoError(t, err)
 		err = helper.Db.Close()
 		require.NoError(t, err)

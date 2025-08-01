@@ -2,9 +2,10 @@ package tests
 
 import (
 	"dungtl2003/chat-app-message-service/internal/config"
-	"dungtl2003/chat-app-message-service/internal/database"
 	"dungtl2003/chat-app-message-service/internal/httpclient"
 	"dungtl2003/chat-app-message-service/internal/logging"
+	"dungtl2003/chat-app-message-service/internal/services/database"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,15 +18,16 @@ type SnowflakeConfig struct {
 }
 
 type Helper struct {
-	Db                *database.Database
+	Db                *database.DatabaseService
 	Client            *httpclient.HttpClient
 	Logger            *logging.LoggerWrapper
 	SnowflakeConfig   *SnowflakeConfig
+	DataFileDir       string
 	MessageServiceURL string
 }
 
 const (
-	JWT_USER_ID_2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJKV1QiLCJzdWIiOiIyIiwidXNlcm5hbWUiOiJub3JtYWx1c2VyMiIsImF1ZCI6WyJVU0VSIl0sImlhdCI6MTcwNjg3MDQwMCwiZXhwIjoxNzA2ODc0MDAwfQ.lMIp-_eJCfAvmJ2H8KoR0DV3UNKhwEYR9trUQ4BdRGk"
+	JWT_USER_ID_2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJKV1QiLCJzdWIiOiJ1c2VyOjIiLCJhdWQiOlsiaW50ZXJuYWwtc2VydmljZSJdLCJpYXQiOjE3MDY4NzA0MDAsImV4cCI6MTcwNjg3NDAwMH0.xQz5Ytlyuibsdcuh3LB-uNeFnK_DCkjKdw7eG0gy51g"
 )
 
 func NewHelper() *Helper {
@@ -37,6 +39,11 @@ func NewHelper() *Helper {
 	dbURL, has := os.LookupEnv("ADMIN_DATABASE_URL")
 	if !has {
 		log.Fatalf("Error when getting ADMIN_DATABASE_URL")
+	}
+
+	dataFileDir, bool := os.LookupEnv("DATA_FILE_DIR")
+	if !bool {
+		log.Fatal("DATA_FILE_DIR is not set")
 	}
 
 	logger, err := logging.NewLogger(config.LogConfig.Level, config.LogConfig.Kind)
@@ -75,7 +82,40 @@ func NewHelper() *Helper {
 			CertDir: config.SnowflakeConfig.CertDir,
 		},
 		MessageServiceURL: msgServiceURL,
+		DataFileDir:       dataFileDir,
 	}
 
+	loggerWrapper.Info("Helper initialized")
 	return helper
+}
+
+func (h *Helper) CreateTemporaryData(dataFile database.DataFile) error {
+	if dataFile.UserFile != "" {
+		dataFile.UserFile = fmt.Sprintf("%s/%s", h.DataFileDir, dataFile.UserFile)
+	}
+	if dataFile.ConversationFile != "" {
+		dataFile.ConversationFile = fmt.Sprintf("%s/%s", h.DataFileDir, dataFile.ConversationFile)
+	}
+	if dataFile.ParticipantFile != "" {
+		dataFile.ParticipantFile = fmt.Sprintf("%s/%s", h.DataFileDir, dataFile.ParticipantFile)
+	}
+	if dataFile.MessageFile != "" {
+		dataFile.MessageFile = fmt.Sprintf("%s/%s", h.DataFileDir, dataFile.MessageFile)
+	}
+
+	h.Logger.Info("Creating temporary data")
+	err := h.Db.CreateTemporaryData(dataFile)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Helper) ClearAllData() error {
+	h.Logger.Info("Clearing all data")
+	err := h.Db.ClearAllData()
+	if err != nil {
+		return err
+	}
+	return nil
 }

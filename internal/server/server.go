@@ -5,10 +5,11 @@ import (
 	"dungtl2003/chat-app-message-service/internal/api"
 	"dungtl2003/chat-app-message-service/internal/config"
 	ctx "dungtl2003/chat-app-message-service/internal/context"
-	"dungtl2003/chat-app-message-service/internal/database"
 	"dungtl2003/chat-app-message-service/internal/httpclient"
 	"dungtl2003/chat-app-message-service/internal/logging"
 	"dungtl2003/chat-app-message-service/internal/router"
+	"dungtl2003/chat-app-message-service/internal/services"
+	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/snowflake"
 	"dungtl2003/chat-app-message-service/internal/validate"
 	"errors"
@@ -43,13 +44,6 @@ func New() *Server {
 
 	loggerWrapper.Info("switching to custom logger")
 
-	// Create a new database connection
-	db, err := database.New(config.DatabaseURL, loggerWrapper)
-	if err != nil {
-		loggerWrapper.Errorfln("database.New(): %v", err)
-		os.Exit(1)
-	}
-
 	// Create a new validator
 	validator := validate.NewValidator()
 
@@ -60,14 +54,25 @@ func New() *Server {
 		os.Exit(1)
 	}
 
+	// Create a new database connection
+	dbService, err := database.New(config.DatabaseURL, loggerWrapper)
+	if err != nil {
+		loggerWrapper.Errorfln("database.New(): %v", err)
+		os.Exit(1)
+	}
+
 	client := httpclient.New()
 
 	appCtx := &ctx.AppContext{
 		IdGeneratorService: idGeneratorService,
 		Validator:          validator,
 		Logger:             loggerWrapper,
-		Database:           db,
+		DatabaseService:    dbService,
 		Client:             client,
+		Services: []services.Service{
+			idGeneratorService,
+			dbService,
+		},
 	}
 
 	publicHandlers := []router.Handler{
@@ -111,12 +116,6 @@ func New() *Server {
 
 // Run starts the server and all services. It blocks until an error occurs or the server is closed. It will log fatal if any error occurs.
 func (s *Server) Run() {
-	// Run all services
-	if err := s.appCtx.IdGeneratorService.Run(); err != nil {
-		s.appCtx.Logger.Errorfln("IdGeneratorService.Run(): %v", err)
-		os.Exit(1)
-	}
-
 	go func() {
 		if err := s.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.appCtx.Logger.Errorfln("ListenAndServe(): %v", err)
@@ -130,33 +129,35 @@ func (s *Server) Run() {
 	s.Close()
 }
 
-// Close shuts down the server and all services. It also exits the program. It will log fatal if any error occurs.
+// Close shuts down the server. The function will close the database connection and
+// shut down the server. The function will exit the program with status code 0 if
+// the server is shut down successfully. The function will exit the program with
+// status code 1 if there is an error when shutting down the server.
 func (s *Server) Close() {
-	s.appCtx.Logger.Info("shutting down server...")
+	s.appCtx.Logger.Info("shutting down server")
 
-	// Inform the server it has 5 seconds to finish
+	var err error
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	defer func() {
+		cancel()
+		if err != nil {
+			os.Exit(1)
+		}
 
-	// Close all services
-	if err := s.appCtx.IdGeneratorService.Close(); err != nil {
-		s.appCtx.Logger.Errorfln("IdGeneratorService.Close(): %v", err)
-		os.Exit(1)
+		os.Exit(0)
+	}()
+
+	for _, service := range s.appCtx.Services {
+		if err = service.Close(); err != nil {
+			s.appCtx.Logger.Errorfln("error when closing service [%s]: %v", service.Name(), err)
+		} else {
+			s.appCtx.Logger.Debugfln("service [%s] closed successfully", service.Name())
+		}
 	}
 
-	// Close the database connection
-	if err := s.appCtx.Database.Close(); err != nil {
-		s.appCtx.Logger.Errorfln("Database.Close(): %v", err)
-		os.Exit(1)
+	if err = s.srv.Shutdown(ctx); err != nil {
+		s.appCtx.Logger.Errorfln("error when shutting down server: %v", err)
+	} else {
+		s.appCtx.Logger.Infofln("server shut down")
 	}
-
-	s.appCtx.Logger.Info("all services are closed")
-
-	if err := s.srv.Shutdown(ctx); err != nil {
-		s.appCtx.Logger.Errorfln("Shutdown(): %v", err)
-		os.Exit(1)
-	}
-
-	s.appCtx.Logger.Info("server exiting")
-	os.Exit(0)
 }

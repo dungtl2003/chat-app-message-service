@@ -30,13 +30,14 @@ type IdGeneratorService struct {
 	logger *logging.LoggerWrapper
 }
 
-// New creates a new ID generator service instance. The function will create a
-// connection to the ID generator service. If the connection is successful, the
-// function will return the service instance. Otherwise, the function will return
-// an error. If the certDir is empty, the function will create an insecure connection.
-// If the certDir is not empty, it must contain `client_cert.pem`, `client_key.pem`,
-// and `ca_cert.pem`. The function will create a secure connection using these files.
-// Call Run() to start the service.
+// New creates a new ID generator service instance and start it. The function
+// will create a connection to the ID generator service. If the connection is
+// successful, the function will return the service instance. Otherwise, the
+// function will return an error. If the certDir is empty, the function will
+// create an insecure connection. If the certDir is not empty, it must contain
+// `client_cert.pem`, `client_key.pem`, and `ca_cert.pem`. The function will
+// create a secure connection using these files. Remember to call Close() when
+// done to release resources.
 func New(serverAddr string, certDir string, logger *logging.LoggerWrapper) (*IdGeneratorService, error) {
 	idGeneratorService := &IdGeneratorService{
 		logger: logger,
@@ -44,57 +45,50 @@ func New(serverAddr string, certDir string, logger *logging.LoggerWrapper) (*IdG
 	opts := []grpc.DialOption{}
 
 	if certDir != "" {
-		logger.Info("using TLS", "service", idGeneratorService.GetName())
+		logger.Infofln("[%s] Using TLS", idGeneratorService.Name())
 		creds, err := loadTlsCredentials(certDir)
 		if err != nil {
-			logger.Error("failed to load TLS credentials", "service", idGeneratorService.GetName(), "error", err)
+			logger.Errorfln("[%s] Failed to load TLS credentials: %v", idGeneratorService.Name(), err)
 			return nil, err
 		}
 
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
-		logger.Info("using insecure connection", "service", idGeneratorService.GetName())
+		logger.Infofln("[%s] Using insecure connection", idGeneratorService.Name())
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	conn, err := grpc.NewClient(serverAddr, opts...)
 	if err != nil {
-		errMessage := fmt.Sprintf("failed to create connection to ID generator service, error: %v", err)
-		logger.Error(errMessage, "service", idGeneratorService.GetName())
+		logger.Errorfln("[%s] Failed to create connection, error: %v", idGeneratorService.Name(), err)
 		return nil, err
 	}
 
 	idGeneratorService.conn = conn
+	idGeneratorService.logger.Infofln("[%s] Connection established", idGeneratorService.Name())
+
+	idGeneratorService.client = pb.NewIdGeneratorClient(conn)
+
 	idGeneratorService.status = services.READY
-	idGeneratorService.logger.Info("ID generator service is ready", "service", idGeneratorService.GetName())
+	idGeneratorService.logger.Infofln("[%s] Running", idGeneratorService.Name())
 	return idGeneratorService, nil
-}
-
-// Run starts the ID generator service.
-func (s *IdGeneratorService) Run() error {
-	client := pb.NewIdGeneratorClient(s.conn)
-	s.client = client
-
-	s.status = services.RUNNING
-	s.logger.Info("ID generator service is running", "service", s.GetName())
-	return nil
 }
 
 // Close closes the connection to the ID generator service.
 func (s *IdGeneratorService) Close() error {
 	if s.status == services.STOPPED {
-		s.logger.Info("ID generator service is already stopped", "service", s.GetName())
+		s.logger.Errorfln("[%s] Already stopped", s.Name())
 		return nil
 	}
 
-	s.logger.Info("closing ID generator service", "service", s.GetName())
+	s.logger.Infofln("[%s] Closing", s.Name())
 	err := s.conn.Close()
 	if err != nil {
-		s.logger.Error("failed to close connection to ID generator service", "service", s.GetName(), "error", err)
+		s.logger.Errorfln("[%s] Failed to close connection, error: %v", s.Name(), err)
 		s.status = services.ERROR
 	}
 
-	s.logger.Info("ID generator service is closed", "service", s.GetName())
+	s.logger.Infofln("[%s] Stopped", s.Name())
 	s.status = services.STOPPED
 
 	return err
@@ -102,30 +96,41 @@ func (s *IdGeneratorService) Close() error {
 
 // GenerateId generates a new ID.
 func (s *IdGeneratorService) GenerateId() (int64, error) {
-	if s.status != services.RUNNING {
-		s.logger.Error("ID generator service is not running", "service", s.GetName(), "status", s.GetStatus())
+	if s.status != services.READY {
+		s.logger.Errorfln("[%s] ID generator service is not running", s.Name())
 		return 0, fmt.Errorf("ID generator service is not running")
 	}
 
-	s.logger.Info("generating ID", "service", s.GetName())
+	s.logger.Debugfln("[%s] Generating ID", s.Name())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	resp, err := s.client.GenerateId(ctx, &pb.GenerateIdRequest{})
 	if err != nil {
-		s.logger.Error("failed to generate ID", "service", s.GetName(), "error", err)
+		s.status = services.ERROR
+		s.logger.Errorfln("[%s] Failed to generate ID, error: %v", s.Name(), err)
 		return 0, err
 	}
 
-	s.logger.Info("generated ID", "service", s.GetName(), "id", resp.Id)
+	s.status = services.READY
+	s.logger.Debugfln("[%s] Generated ID: %d", s.Name(), resp.Id)
 	return resp.Id, nil
 }
 
-func (s *IdGeneratorService) GetStatus() services.ServiceStatus {
+func (s *IdGeneratorService) Status() services.ServiceStatus {
+	if s.status != services.STOPPED {
+		_, err := s.GenerateId() // Check if the service is still ready by trying to generate an ID
+		if err != nil {
+			s.status = services.ERROR
+			s.logger.Errorfln("[%s] Service is not ready, error: %v", s.Name(), err)
+		} else {
+			s.status = services.READY
+		}
+	}
 	return s.status
 }
 
-func (s *IdGeneratorService) GetName() string {
+func (s *IdGeneratorService) Name() string {
 	return "ID generator"
 }
 

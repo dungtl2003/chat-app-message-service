@@ -3,16 +3,13 @@ package services
 type ServiceStatus int
 
 const (
-	RUNNING ServiceStatus = iota
-	INITIALIZING
-	READY
+	READY ServiceStatus = iota
 	ERROR
 	STOPPED
 )
 
 type Service interface {
-	GetStatus() ServiceStatus
-	GetName() string
+	Status() ServiceStatus
+	Name() string
 	Close() error
-	Run() error
 }

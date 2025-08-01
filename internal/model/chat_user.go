@@ -25,7 +25,7 @@ type ChatUser struct {
 	Gender         types.JsonNullString `json:"gender"`
 	PhoneNumber    types.JsonNullString `json:"phone_number"`
 	Privacy        types.JsonNullString `json:"privacy"`
-	AvatarUrl      types.JsonNullString `json:"avatar_url"`
+	Avatar         types.JsonNullString `json:"avatar"`
 	SessionVersion types.JsonInt64      `json:"session_version"`
 	CreatedAt      types.JsonTime       `json:"created_at"`
 	UpdatedAt      types.JsonNullTime   `json:"updated_at"`

@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"dungtl2003/chat-app-message-service/internal/logging"
-	"dungtl2003/chat-app-message-service/internal/model"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,141 +11,105 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type UserClaims struct {
-	UserId   int64
-	Username string
-	Role     model.UserRole
-}
+const (
+	INTERNAL_AUDIENCE = "internal-service"
+)
 
-type JWTClaim struct {
+type InternalJWTClaim struct {
 	jwt.RegisteredClaims
-	Username string `json:"name"`
-}
-
-func (c JWTClaim) GetUsername() (string, error) {
-	return c.Username, nil
 }
 
 func AuthMiddleware(logger *logging.LoggerWrapper) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// If the request is /health, we don't need to check the token
-		if c.Request.URL.Path == "/healthcheck" {
-			c.Next()
-			return
-		}
-
 		authToken := c.GetHeader("Authorization")
 		if authToken == "" {
-			logger.Debugfln("authorization header is required")
+			logger.Debug("authorization header is required")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
 			c.Abort()
 			return
 		}
 
-		logger.Debugfln("authorization header: %s", authToken)
-
 		parts := strings.Split(authToken, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			logger.Debugfln("authorization header format must be Bearer {token}")
+			logger.Debug("authorization header format must be Bearer {token}")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header format must be Bearer {token}"})
 			c.Abort()
 			return
 		}
 
-		tokenStr := parts[1]
 		// We assume that the token is valid (it has been verified by the API Gateway)
-		logger.Debugfln("access token: %s", tokenStr)
-		token, err := decodeTokenUnsafe(tokenStr)
+		tokenStr := parts[1]
+		tokClaim, err := parseToken(tokenStr)
 		if err != nil {
-			logger.Debugfln("decodeTokenUnsafe(): %v", err)
+			debugMSg := fmt.Sprintf("failed to parse token: %v", err)
+			logger.Debug(debugMSg)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			c.Abort()
 			return
 		}
 
-		claims, ok := token.Claims.(*JWTClaim)
-		if !ok {
-			logger.Debugfln("invalid token")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-		logger.Debugfln("claims: %#v", claims)
-
-		userClaims, err := mapToUserClaims(*claims)
-		if err != nil {
-			logger.Debugfln("mapToUserClaims(): %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-
-		logger.Debugfln("set user claims: %#v", userClaims)
-		c.Set("user_claims", *userClaims)
+		c.Set("token", tokClaim)
 		c.Next()
 	}
 }
 
-func mapToUserClaims(claims JWTClaim) (*UserClaims, error) {
-	userIdStr, err := claims.GetSubject()
+func GetTokenClaim(c *gin.Context) (*InternalJWTClaim, error) {
+	token, exists := c.Get("token")
+	if !exists {
+		return nil, fmt.Errorf("token not found in context")
+	}
+
+	tokClaim, ok := token.(*InternalJWTClaim)
+	if !ok {
+		return nil, fmt.Errorf("invalid token type in context")
+	}
+
+	return tokClaim, nil
+}
+
+func parseToken(tokenString string) (*InternalJWTClaim, error) {
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}))
+	token, _, err := parser.ParseUnverified(tokenString, &InternalJWTClaim{})
 	if err != nil {
 		return nil, err
 	}
 
-	userId, err := strconv.ParseInt(userIdStr, 10, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	username, err := claims.GetUsername()
-	if err != nil {
-		return nil, err
+	claims, ok := token.Claims.(*InternalJWTClaim)
+	if !ok {
+		return nil, fmt.Errorf("invalid claims (%#v)", token.Claims)
 	}
 
 	aud, err := claims.GetAudience()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get audience: %w", err)
 	}
 	if len(aud) == 0 {
-		return nil, fmt.Errorf("aud claim is empty")
+		return nil, fmt.Errorf("audience is required")
 	}
 
-	roleStr := aud[0]
-
-	if !model.IsRole(roleStr) {
-		return nil, fmt.Errorf("role claim is invalid")
+	if aud[0] != INTERNAL_AUDIENCE {
+		return nil, fmt.Errorf("invalid audience: %s", aud[0])
 	}
 
-	role := model.UserRole(roleStr)
-
-	return &UserClaims{
-		UserId:   userId,
-		Username: username,
-		Role:     role,
-	}, nil
+	return claims, nil
 }
 
-func GetUserClaims(c *gin.Context) (*UserClaims, error) {
-	userClaimsAny, ok := c.Get("user_claims")
-	if !ok {
-		return nil, fmt.Errorf("user claims not found")
-	}
-	userClaims, ok := userClaimsAny.(UserClaims)
-	if !ok {
-		return nil, fmt.Errorf("user claims has wrong type")
-	}
-	return &userClaims, nil
-}
-
-func decodeTokenUnsafe(tokenString string) (*jwt.Token, error) {
-	// Decode the token here
-	// This is a placeholder implementation
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}))
-	token, _, err := parser.ParseUnverified(tokenString, &JWTClaim{})
-
+// format: user:id
+func GetUserId(c InternalJWTClaim) (int64, error) {
+	subject, err := c.GetSubject()
 	if err != nil {
-		return nil, err
+		return 0, fmt.Errorf("failed to get subject: %w", err)
 	}
 
-	return token, nil
+	parts := strings.Split(subject, ":")
+	if len(parts) != 2 || parts[0] != "user" {
+		return 0, fmt.Errorf("invalid subject format: %s", subject)
+	}
+
+	userId, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid user ID: %v", err)
+	}
+
+	return userId, nil
 }

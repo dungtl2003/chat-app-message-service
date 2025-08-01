@@ -5,55 +5,101 @@ import (
 	"dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/logging"
 	"dungtl2003/chat-app-message-service/internal/model"
+	"dungtl2003/chat-app-message-service/internal/services"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 
 	_ "github.com/lib/pq" // postgresql driver support
 )
 
+type DataFile struct {
+	UserFile         string
+	ConversationFile string
+	ParticipantFile  string
+	MessageFile      string
+}
+
 var (
 	ErrDatabaseError = fmt.Errorf("database error")
 )
 
-type Database struct {
+type DatabaseService struct {
 	client *sql.DB
 	logger *logging.LoggerWrapper
+	status services.ServiceStatus
+}
+
+func (d *DatabaseService) Name() string {
+	return "Database Service"
+}
+
+func (d *DatabaseService) Status() services.ServiceStatus {
+	if d.status != services.STOPPED {
+		// check if the database connection is still alive
+		if err := d.client.Ping(); err != nil {
+			d.logger.Errorfln("[%s] Database connection is not alive: %v", d.Name(), err)
+			d.status = services.ERROR
+		} else {
+			d.status = services.READY
+		}
+	}
+
+	return d.status
 }
 
 // New creates a new database connection. The function returns a database connection and an error.
-func New(url string, logger *logging.LoggerWrapper) (*Database, error) {
+func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 	client, err := sql.Open("postgres", url)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Database{
+	d := &DatabaseService{
 		client: client,
 		logger: logger,
-	}, nil
+		status: services.READY,
+	}
+
+	d.logger.Infofln("[%s] Database connection created", d.Name())
+	d.logger.Infofln("[%s] Running", d.Name())
+	return d, nil
+
 }
 
 // Close closes the database connection. The function returns an error.
-func (d *Database) Close() error {
-	d.logger.Info("closing database connection")
-	if err := d.client.Close(); err != nil {
-		d.logger.Errorfln("error when closing database connection: %v", err)
-		return err
-	} else {
-		d.logger.Info("database connection closed")
+func (d *DatabaseService) Close() error {
+	if d.Status() == services.STOPPED {
+		d.logger.Errorfln("[%s] Database connection is already closed", d.Name())
 		return nil
 	}
+
+	err := d.client.Close()
+	if err != nil {
+		d.logger.Errorfln("[%s] Failed to close database connection: %v", d.Name(), err)
+		d.status = services.ERROR
+	} else {
+		d.logger.Infofln("[%s] Database connection closed", d.Name())
+		d.status = services.STOPPED
+	}
+
+	return err
 }
 
 // CreateMessage create a new message. It will return the created message, status
 // and error if occurs.
 // The status code is 200 if the operation is done successfully.
 // The status code is 500 database error occurs.
-func (d *Database) CreateMessage(message model.Message) (*model.Message, int, error) {
+func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, int, error) {
+	if d.Status() != services.READY {
+		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+		return nil, http.StatusInternalServerError, ErrDatabaseError
+	}
+
 	tx, err := d.client.Begin()
 	if err != nil {
 		d.logger.Errorfln("client.Begin(): %v", err)
@@ -157,7 +203,12 @@ func (d *Database) CreateMessage(message model.Message) (*model.Message, int, er
 // than the current result if you use `limit` option, or error if occurs.
 // The status code is 200 if the operation is done successfully.
 // The status code is 500 database error occurs.
-func (d *Database) GetMessages(conversationId int64, after types.Optional[int64], limit types.Optional[int64], orderBy types.Optional[string]) ([]model.Message, bool, int, error) {
+func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional[int64], limit types.Optional[int64], orderBy types.Optional[string]) ([]model.Message, bool, int, error) {
+	if d.Status() != services.READY {
+		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+		return nil, false, http.StatusInternalServerError, ErrDatabaseError
+	}
+
 	args := []any{}
 
 	whereClauses := []string{
@@ -258,7 +309,12 @@ func (d *Database) GetMessages(conversationId int64, after types.Optional[int64]
 
 // GetAllMessages get all messages in the database. The function is currently used
 // fro testing purposes. It will return messages or error if occurs.
-func (d *Database) GetAllMessages() ([]model.Message, error) {
+func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
+	if d.Status() != services.READY {
+		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+		return nil, ErrDatabaseError
+	}
+
 	messageRows, err := d.client.Query(`
 		SELECT
 			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
@@ -295,100 +351,167 @@ func (d *Database) GetAllMessages() ([]model.Message, error) {
 	return messages, nil
 }
 
-// Snapshot creates a snapshot of the current database state. The function is currently used for testing purposes.
-// The function returns an error. You can use Rollback() to revert the database to the state before the snapshot.
-func (d *Database) Snapshot() error {
+// CreateTemporaryData creates temporary data in the database for testing purposes.
+func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 	tx, err := d.client.Begin()
 	if err != nil {
-		d.logger.Error("error when starting transaction", "error", err)
 		return err
 	}
-
 	defer func() {
 		if err != nil {
 			tx.Rollback()
 		}
 	}()
 
-	cmds := []string{
-		`CREATE TABLE IF NOT EXISTS chat_user.chat_user_snapshot AS SELECT * FROM chat_user.chat_user WHERE false;`,             // create an empty table
-		`CREATE TABLE IF NOT EXISTS message.message_snapshot AS SELECT * FROM message.message WHERE false;`,                     // create an empty table
-		`CREATE TABLE IF NOT EXISTS conversation.conversation_snapshot AS SELECT * FROM conversation.conversation WHERE false;`, // create an empty table
-		`CREATE TABLE IF NOT EXISTS conversation.participant_snapshot AS SELECT * FROM conversation.participant WHERE false;`,   // create an empty table
-
-		`DELETE FROM chat_user.chat_user_snapshot;`,
-		`DELETE FROM message.message_snapshot;`,
-		`DELETE FROM conversation.conversation_snapshot;`,
-		`DELETE FROM conversation.participant_snapshot;`,
-
-		`INSERT INTO chat_user.chat_user_snapshot SELECT * FROM chat_user.chat_user;`,
-		`INSERT INTO message.message_snapshot SELECT * FROM message.message;`,
-		`INSERT INTO conversation.conversation_snapshot SELECT * FROM conversation.conversation;`,
-		`INSERT INTO conversation.participant_snapshot SELECT * FROM conversation.participant;`,
+	if dataFile.UserFile != "" {
+		userData, err := os.ReadFile(dataFile.UserFile)
+		if err != nil {
+			return err
+		}
+		var users []model.ChatUser
+		err = json.Unmarshal(userData, &users)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Creating temporary users")
+		// Password is not hashed
+		for _, user := range users {
+			query := `INSERT INTO chat_user.chat_user (
+            id, email, username, password, role, first_name, last_name, birthday, gender, phone_number, privacy, avatar, created_at, updated_at, deleted_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+        );`
+			args := []any{user.Id, user.Email, user.Username, user.Password, user.Role, user.FirstName, user.LastName, user.Birthday, user.Gender, user.PhoneNumber, user.Privacy, user.Avatar, user.CreatedAt, user.UpdatedAt, user.DeletedAt}
+			d.logger.Debugfln("query: %s; args: %v", helper.StripWS(query), args)
+			_, err = tx.Exec(query, args...)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	for _, cmd := range cmds {
-		_, err = d.client.Exec(cmd)
+	if dataFile.ConversationFile != "" {
+		conversationData, err := os.ReadFile(dataFile.ConversationFile)
 		if err != nil {
-			msg := fmt.Sprintf("error when trying to create snapshot: error when executing command: %s: %v", cmd, err)
-			d.logger.Error(msg)
 			return err
+		}
+		var conversations []model.Conversation
+		err = json.Unmarshal(conversationData, &conversations)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Creating temporary conversations")
+		for _, conversation := range conversations {
+			_, err = tx.Exec(`INSERT INTO conversation.conversation (
+			id, type, created_at, deleted_at
+		) VALUES (
+			$1, $2, $3, $4
+		);`, conversation.Id, conversation.Type, conversation.CreatedAt, conversation.DeletedAt)
+			if err != nil {
+				return err
+			}
+			for _, participant := range conversation.Participants {
+				_, err = tx.Exec(`INSERT INTO conversation.participant (
+					id, user_id, name, conversation_id, role
+				) VALUES (
+					$1, $2, $3, $4, $5
+				);`, participant.Id, participant.UserId, participant.Name, conversation.Id, participant.Role)
+				if err != nil {
+					return err
+				}
+			}
+			if conversation.Type == model.GROUP {
+				if conversation.Group == nil {
+					return fmt.Errorf("group conversation %d is missing group information", conversation.Id.Int64())
+				}
+				_, err = tx.Exec(`INSERT INTO conversation.group_chat (
+			id, name, avatar, updated_at, conversation_id
+		) VALUES (
+			$1, $2, $3, $4, $5
+		);`, conversation.Group.Id, conversation.Group.Name, conversation.Group.Avatar, conversation.Group.UpdatedAt, conversation.Id)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if dataFile.ParticipantFile != "" {
+		participantData, err := os.ReadFile(dataFile.ParticipantFile)
+		if err != nil {
+			return err
+		}
+		var participants []model.Participant
+		err = json.Unmarshal(participantData, &participants)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Creating temporary participants")
+		for _, participant := range participants {
+			_, err = tx.Exec(`INSERT INTO conversation.participant (
+							id, user_id, name, conversation_id, role
+						) VALUES (
+							$1, $2, $3, $4, $5
+						);`, participant.Id, participant.UserId, participant.Name, participant.ConversationId, participant.Role)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if dataFile.MessageFile != "" {
+		messageData, err := os.ReadFile(dataFile.MessageFile)
+		if err != nil {
+			return err
+		}
+		var messages []model.Message
+		err = json.Unmarshal(messageData, &messages)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Creating temporary messages")
+		for _, message := range messages {
+			_, err = tx.Exec(`INSERT INTO message.message (
+				id, content, sender_id, receiver_id, created_at, updated_at, deleted_at, type
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8
+			);`, message.Id, message.Content, message.SenderId, message.ReceiverId, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.Type)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		msg := fmt.Sprintf("error when trying to create snapshot: error when committing transaction: %v", err)
-		d.logger.Error(msg)
 		return err
 	}
-
 	return nil
+
 }
 
-// Rollback rolls back the database to the state before the snapshot. The function is currently used for testing purposes.
-// The function returns an error. You must call Snapshot() before calling this function.
-func (d *Database) Rollback() error {
-	tx, err := d.client.Begin()
-	if err != nil {
-		d.logger.Error("error when starting transaction", "error", err)
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
-
-	cmds := []string{
+// ClearAllData clears all data in the database. This function is used for
+// testing purposes.
+//
+// FIXED (2025-07-20):
+// Previously, this function only cleared the `chat_user` tables. It assumed
+// that the `conversation` tables were deleted when users were deleted. But
+// now, conversations are not dependent on users, so we need to clear the
+// `conversation` tables as well.
+func (d *DatabaseService) ClearAllData() error {
+	queries := []string{
 		`DELETE FROM chat_user.chat_user;`,
-
-		`INSERT INTO chat_user.chat_user SELECT * FROM chat_user.chat_user_snapshot;`,
-		`INSERT INTO conversation.conversation SELECT * FROM conversation.conversation_snapshot;`,
-		`INSERT INTO conversation.participant SELECT * FROM conversation.participant_snapshot;`,
-		`INSERT INTO message.message SELECT * FROM message.message_snapshot;`,
-
-		`DROP TABLE chat_user.chat_user_snapshot;`,
-		`DROP TABLE message.message_snapshot;`,
-		`DROP TABLE conversation.conversation_snapshot;`,
-		`DROP TABLE conversation.participant_snapshot;`,
+		`DELETE FROM conversation.conversation;`,
 	}
 
-	for _, cmd := range cmds {
-		_, err = d.client.Exec(cmd)
+	for _, query := range queries {
+		d.logger.Debugfln("query: %s", query)
+		_, err := d.client.Exec(query)
 		if err != nil {
-			msg := fmt.Sprintf("error when rolling back: error when executing command: %s: %v", cmd, err)
-			d.logger.Error(msg)
 			return err
 		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		msg := fmt.Sprintf("error when rolling back: error when committing transaction: %v", err)
-		d.logger.Error(msg)
-		return err
 	}
 
 	return nil

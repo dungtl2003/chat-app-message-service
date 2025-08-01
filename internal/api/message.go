@@ -21,10 +21,10 @@ type PostAttachmentRequestBody struct {
 }
 
 type PostMessageRequestBody struct {
-	SenderId   types.JsonInt64   `json:"sender_id,required"`
-	ReceiverId types.JsonInt64   `json:"receiver_id,required"`
-	Content    string            `json:"content,required"`
-	Type       model.MessageType `json:"type,required"`
+	SenderId   types.JsonInt64   `json:"sender_id" validate:"required"`
+	ReceiverId types.JsonInt64   `json:"receiver_id" validate:"required"`
+	Content    string            `json:"content" validate:"required"`
+	Type       model.MessageType `json:"type" validate:"required"`
 
 	Attachments []PostAttachmentRequestBody `json:"attachments"`
 }
@@ -120,7 +120,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 			optionalOrderBy.SetValue(fmt.Sprintf("%s:%s", key, strings.ToUpper(order)))
 		}
 
-		messages, hasMore, status, err := appCtx.Database.GetMessages(conversationId, *optionalAfter, *optionalLimit, *optionalOrderBy)
+		messages, hasMore, status, err := appCtx.DatabaseService.GetMessages(conversationId, *optionalAfter, *optionalLimit, *optionalOrderBy)
 		if err != nil {
 			appCtx.Logger.Debugfln("Database.GetMessages(): %v", err)
 			c.JSON(status, gin.H{"error": fmt.Sprintf("%v", err)})
@@ -188,7 +188,7 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 		}
 		appCtx.Logger.Debugfln("message: %#v", message)
 
-		msg, status, err := appCtx.Database.CreateMessage(message)
+		msg, status, err := appCtx.DatabaseService.CreateMessage(message)
 		if err != nil {
 			appCtx.Logger.Debugfln("Database.CreateMessage(): %v", err)
 			c.JSON(status, gin.H{"error": fmt.Sprintf("%v", err)})
