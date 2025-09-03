@@ -8,7 +8,19 @@ COMPOSE_DIR=${COMPOSE_DIR:-"$ROOT_DIR/compose"}
 COMPOSE_FILE=${COMPOSE_FILE:-"docker-compose.yaml"}
 COMPOSE_PATH=${COMPOSE_PATH:-"$COMPOSE_DIR/$COMPOSE_FILE"}
 
-services=("snowflake" "database")
+services=(
+    "media"
+    "snowflake TLS" 
+    "snowflake non-TLS" 
+    "database" 
+    "controller 1" 
+    "controller 2" 
+    "controller 3" 
+    "broker 1" 
+    "broker 2" 
+    "broker 3" 
+    "topics-init"
+)
 
 command="$1"
 extraArgs="${@:2}"
@@ -138,17 +150,6 @@ wait_for_containers() {
     return 0
 }
 
-create_topic() {
-    local topic_name=$1
-    local container_name=$2
-    local broker_port=${3:-9092}
-    local partitions=${4:-3}
-    local replication_factor=${5:-2}
-
-    echo "Creating topic ${topic_name} on broker ${container_name} with ${partitions} partitions and replication factor ${replication_factor}"
-    docker exec -i ${container_name} /opt/kafka/bin/kafka-topics.sh --create --topic ${topic_name} --bootstrap-server localhost:${broker_port} --partitions ${partitions} --replication-factor ${replication_factor} --if-not-exists
-}
-
 run_command() {
     shopt -s globstar # for ** pattern matching
     echo "Running command: ${command} ${extraArgs}"
@@ -167,8 +168,6 @@ main() {
     if [[ ${?} -ne 0 ]]; then
         quit
     fi
-
-    # create_topic "participant-avatar-updates" "${access_broker}" "19092" "3" "2"
 
     # press enter to continue
     # read -p "Press Enter to continue..."

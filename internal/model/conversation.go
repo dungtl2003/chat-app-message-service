@@ -16,11 +16,11 @@ type Conversation struct {
 	Type      ConversationType   `json:"type"`
 	CreatedAt types.JsonTime     `json:"created_at"`
 	DeletedAt types.JsonNullTime `json:"deleted_at"`
+	UpdatedAt types.JsonTime     `json:"updated_at"`
+
+	LastActivityAt types.JsonNullTime  `json:"last_activity_at"`
+	LastMessageId  types.JsonNullInt64 `json:"last_message_id"`
 
 	Group        *GroupChat    `json:"group"`
 	Participants []Participant `json:"participants"`
-}
-
-func IsConversationType(s string) bool {
-	return s == string(DIRECT) || s == string(GROUP)
 }

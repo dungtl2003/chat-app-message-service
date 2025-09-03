@@ -2,9 +2,11 @@ package tests
 
 import (
 	"bytes"
-	h "dungtl2003/chat-app-message-service/internal/helper"
+	"dungtl2003/chat-app-message-service/internal/api"
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/services/database"
+	"dungtl2003/chat-app-message-service/internal/types"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -13,87 +15,82 @@ import (
 )
 
 const (
-	USERS__MESSAGE__CREATE_FILENAME = "chat_users__message__create_test.json"
-	CONVS__MESSAGE__CREATE_FILENAME = "conversations__message__create_test.json"
+	USERS__MESSAGE__CREATE_FILENAME  = "chat_users__message__create_test.json"
+	CONVS__MESSAGE__CREATE_FILENAME  = "conversations__message__create_test.json"
+	ASSETS__MESSAGE__CREATE_FILENAME = "assets__message__create_test.json"
 )
 
 func TestCreateMessageShouldWork(t *testing.T) {
-	helper := NewHelper()
-	err := helper.CreateTemporaryData(database.DataFile{
-		UserFile:         USERS__MESSAGE__CREATE_FILENAME,
-		ConversationFile: CONVS__MESSAGE__CREATE_FILENAME,
+	helper := NewTestHelper()
+	SetUp(helper, &SetUpOptions{
+		DataFile: &database.DataFile{
+			UserFile:         USERS__MESSAGE__CREATE_FILENAME,
+			ConversationFile: CONVS__MESSAGE__CREATE_FILENAME,
+			AssetFile:        ASSETS__MESSAGE__CREATE_FILENAME,
+		},
 	})
-	require.NoError(t, err)
-	defer func() {
-		err := helper.ClearAllData()
-		require.NoError(t, err)
-		err = helper.Db.Close()
-		require.NoError(t, err)
-	}()
+	defer TearDown(helper)
 
-	receiverId := 2 // make sure it's in preset data
-	senderId := 4
-	content := "Hey! Check out these files."
-	msgType := model.VIDEO
-	thumbURLs := []string{
-		"https://example.com/thumb1.jpg",
-		"https://example.com/thumb2.jpg",
-		"https://example.com/thumb3.jpg",
+	token := GetInternalAccessToken(2)
+	payload := api.MessagePostRequestBody{
+		SenderId:   types.NewJsonInt64(4),
+		ReceiverId: types.NewJsonInt64(2),
+		Content:    "Hey! Check out these files.",
+		Type:       model.MSG_IMAGE,
+
+		Attachments: []api.AttachmentPostRequestBody{
+			{
+				AssetId:  types.NewJsonInt64(1),
+				Position: 0,
+				Type:     model.ATT_IMAGE,
+			},
+			{
+				AssetId:  types.NewJsonInt64(2),
+				Position: 1,
+				Type:     model.ATT_IMAGE,
+			},
+			{
+				AssetId:  types.NewJsonInt64(3),
+				Position: 2,
+				Type:     model.ATT_IMAGE,
+			},
+		},
 	}
-	fileURLs := []string{
-		"https://example.com/file1.jpg",
-		"https://example.com/file2.jpg",
-		"https://example.com/file3.jpg",
-	}
-	payload := fmt.Appendf(nil, `
-		{
-	  		"sender_id": "%d",
-	  		"receiver_id": "%d",
-	  		"content": "%s",
-	  		"type": "%s",
-	  		"attachments": [
-				{
-				  	"thumb_url": "%s",
-				  	"file_url": "%s"
-				},
-				{
-				  	"thumb_url": "%s",
-				  	"file_url": "%s"
-				},
-				{
-				  	"thumb_url": "%s",
-				  	"file_url": "%s"
-				}
-	  		]
-		}
-	`, senderId, receiverId, content, msgType, thumbURLs[0], fileURLs[0], thumbURLs[1], fileURLs[1], thumbURLs[2], fileURLs[2])
+	payloadJson, err := json.Marshal(payload)
+	require.NoError(t, err)
 
 	url := fmt.Sprintf("%s/messages", helper.MessageServiceURL)
-
 	header := http.Header{
 		"Content-Type":  {"application/json"},
-		"Authorization": {fmt.Sprintf("Bearer %s", JWT_USER_ID_2)},
+		"Authorization": {fmt.Sprintf("Bearer %s", token)},
 	}
-	resp, err := helper.Client.Post(url, header, bytes.NewBuffer(payload))
-	require.NoError(t, err)
-	respBody, err := helper.Client.ReadResponse(resp)
+	resp, err := Post(helper.Client, url, header, bytes.NewBuffer(payloadJson))
 	require.NoError(t, err)
 	require.EqualValues(t, http.StatusCreated, resp.StatusCode)
 
-	var postMsgRespBody model.Message
-	err = h.ParseAsJson(respBody, &postMsgRespBody)
+	var respBody types.Response[model.Message]
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
 	require.NoError(t, err)
 
-	require.EqualValues(t, senderId, postMsgRespBody.SenderId.Int64())
-	require.EqualValues(t, receiverId, postMsgRespBody.ReceiverId.Int64())
-	require.EqualValues(t, content, postMsgRespBody.Content)
-	require.EqualValues(t, msgType, postMsgRespBody.Type)
-	require.EqualValues(t, 3, len(postMsgRespBody.Attachments))
+	require.Empty(t, respBody.Error)
+	require.NotEmpty(t, respBody.Data)
+	require.Nil(t, respBody.Data.Page)
+	require.NotNil(t, respBody.Data.Item)
 
-	idx := 0
-	for thumbURL, fileURL := range h.Zip(thumbURLs, fileURLs) {
-		require.EqualValues(t, thumbURL, postMsgRespBody.Attachments[idx].ThumbURL)
-		require.EqualValues(t, fileURL, postMsgRespBody.Attachments[idx].FileURL)
-		idx++
+	actualMessage := respBody.Data.Item
+
+	require.EqualValues(t, payload.SenderId, actualMessage.SenderId)
+	require.EqualValues(t, payload.ReceiverId, actualMessage.ReceiverId)
+	require.EqualValues(t, payload.Content, actualMessage.Content)
+	require.EqualValues(t, payload.Type, actualMessage.Type)
+	require.NotEmpty(t, actualMessage.Id)
+	require.NotEmpty(t, actualMessage.CreatedAt)
+
+	require.Len(t, actualMessage.Attachments, len(payload.Attachments))
+	for i, att := range actualMessage.Attachments {
+		require.NotEmpty(t, att.Id)
+		require.EqualValues(t, payload.Attachments[i].AssetId, att.AssetId)
+		require.EqualValues(t, payload.Attachments[i].Position, att.Position)
+		require.EqualValues(t, payload.Attachments[i].Type, att.Type)
 	}
 }

@@ -28,3 +28,8 @@ func (l *LoggerWrapper) Debugfln(msg string, args ...any) {
 	formattedMsg := fmt.Sprintf(msg, args...)
 	l.Logger.Debug(formattedMsg)
 }
+
+func (l *LoggerWrapper) Warnfln(msg string, args ...any) {
+	formattedMsg := fmt.Sprintf(msg, args...)
+	l.Logger.Warn(formattedMsg)
+}

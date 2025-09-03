@@ -23,6 +23,7 @@ DNS.1 = localhost
 DNS.2 = chat-app-snowflake-service
 DNS.3 = chat-app-db-service
 DNS.4 = snowflake-tls
+DNS.5 = chat-app-snowflake-tls-service
 
 [ client ]
 basicConstraints = critical,CA:FALSE

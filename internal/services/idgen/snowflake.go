@@ -1,4 +1,4 @@
-package snowflake
+package idgen
 
 import (
 	"context"
@@ -6,11 +6,12 @@ import (
 	"crypto/x509"
 	"dungtl2003/chat-app-message-service/internal/logging"
 	"dungtl2003/chat-app-message-service/internal/services"
-	pb "dungtl2003/chat-app-message-service/internal/services/snowflake/proto"
 	"fmt"
 	"os"
 	"path"
 	"time"
+
+	pb "dungtl2003/chat-app-message-service/internal/services/idgen/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,14 +24,21 @@ const (
 	SERVER_CA_FILE   = "ca_cert.pem"
 )
 
-type IdGeneratorService struct {
-	status services.ServiceStatus
-	client pb.IdGeneratorClient
-	conn   *grpc.ClientConn
-	logger *logging.LoggerWrapper
+type SnowflakeService struct {
+	status             services.ServiceStatus
+	client             pb.IdGeneratorClient
+	conn               *grpc.ClientConn
+	logger             *logging.LoggerWrapper
+	healthCheckTimeout time.Duration
 }
 
-// New creates a new ID generator service instance and start it. The function
+type SnowflakeServiceOptions struct {
+	HealthCheckTimeout time.Duration // Timeout for health check requests
+	Logger             *logging.LoggerWrapper
+	CertDir            string // Directory containing TLS certificates
+}
+
+// NewSnowflakeService creates a new ID generator service instance and start it. The function
 // will create a connection to the ID generator service. If the connection is
 // successful, the function will return the service instance. Otherwise, the
 // function will return an error. If the certDir is empty, the function will
@@ -38,44 +46,63 @@ type IdGeneratorService struct {
 // `client_cert.pem`, `client_key.pem`, and `ca_cert.pem`. The function will
 // create a secure connection using these files. Remember to call Close() when
 // done to release resources.
-func New(serverAddr string, certDir string, logger *logging.LoggerWrapper) (*IdGeneratorService, error) {
-	idGeneratorService := &IdGeneratorService{
-		logger: logger,
-	}
-	opts := []grpc.DialOption{}
+func NewSnowflakeService(serverAddr string, opts *SnowflakeServiceOptions) (*SnowflakeService, error) {
+	var loggerWrapper *logging.LoggerWrapper
 
-	if certDir != "" {
-		logger.Infofln("[%s] Using TLS", idGeneratorService.Name())
-		creds, err := loadTlsCredentials(certDir)
+	if opts != nil && opts.Logger == nil {
+		logger, err := logging.NewLogger(logging.INFO, logging.TEXT)
 		if err != nil {
-			logger.Errorfln("[%s] Failed to load TLS credentials: %v", idGeneratorService.Name(), err)
+			return nil, fmt.Errorf("failed to create logger: %v", err)
+		}
+		loggerWrapper = logging.NewLoggerWrapper(logger)
+	} else {
+		loggerWrapper = opts.Logger
+	}
+
+	snowflakeService := &SnowflakeService{
+		logger: loggerWrapper,
+	}
+
+	grpcOpts := []grpc.DialOption{}
+
+	if opts != nil && opts.CertDir != "" {
+		loggerWrapper.Infofln("[%s] Using TLS", snowflakeService.Name())
+		creds, err := loadTlsCredentials(opts.CertDir)
+		if err != nil {
+			loggerWrapper.Errorfln("[%s] Failed to load TLS credentials: %v", snowflakeService.Name(), err)
 			return nil, err
 		}
 
-		opts = append(opts, grpc.WithTransportCredentials(creds))
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(creds))
 	} else {
-		logger.Infofln("[%s] Using insecure connection", idGeneratorService.Name())
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		loggerWrapper.Infofln("[%s] Using insecure connection", snowflakeService.Name())
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(serverAddr, opts...)
+	if opts != nil && opts.HealthCheckTimeout > 0 {
+		snowflakeService.healthCheckTimeout = opts.HealthCheckTimeout
+	} else {
+		snowflakeService.healthCheckTimeout = 5 * time.Second // Default health check timeout
+	}
+
+	conn, err := grpc.NewClient(serverAddr, grpcOpts...)
 	if err != nil {
-		logger.Errorfln("[%s] Failed to create connection, error: %v", idGeneratorService.Name(), err)
+		loggerWrapper.Errorfln("[%s] Failed to create connection, error: %v", snowflakeService.Name(), err)
 		return nil, err
 	}
 
-	idGeneratorService.conn = conn
-	idGeneratorService.logger.Infofln("[%s] Connection established", idGeneratorService.Name())
+	snowflakeService.conn = conn
+	snowflakeService.logger.Infofln("[%s] Connection established", snowflakeService.Name())
 
-	idGeneratorService.client = pb.NewIdGeneratorClient(conn)
+	snowflakeService.client = pb.NewIdGeneratorClient(conn)
 
-	idGeneratorService.status = services.READY
-	idGeneratorService.logger.Infofln("[%s] Running", idGeneratorService.Name())
-	return idGeneratorService, nil
+	snowflakeService.status = services.READY
+	snowflakeService.logger.Infofln("[%s] Running", snowflakeService.Name())
+	return snowflakeService, nil
 }
 
 // Close closes the connection to the ID generator service.
-func (s *IdGeneratorService) Close() error {
+func (s *SnowflakeService) Close() error {
 	if s.status == services.STOPPED {
 		s.logger.Errorfln("[%s] Already stopped", s.Name())
 		return nil
@@ -95,16 +122,15 @@ func (s *IdGeneratorService) Close() error {
 }
 
 // GenerateId generates a new ID.
-func (s *IdGeneratorService) GenerateId() (int64, error) {
+func (s *SnowflakeService) GenerateId(ctx context.Context) (int64, error) {
+	if s.status == services.STOPPED {
+		return 0, fmt.Errorf("service is stopped")
+	}
 	if s.status != services.READY {
-		s.logger.Errorfln("[%s] ID generator service is not running", s.Name())
-		return 0, fmt.Errorf("ID generator service is not running")
+		s.logger.Warnfln("[%s] Service is not ready", s.Name())
 	}
 
 	s.logger.Debugfln("[%s] Generating ID", s.Name())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	resp, err := s.client.GenerateId(ctx, &pb.GenerateIdRequest{})
 	if err != nil {
 		s.status = services.ERROR
@@ -117,9 +143,13 @@ func (s *IdGeneratorService) GenerateId() (int64, error) {
 	return resp.Id, nil
 }
 
-func (s *IdGeneratorService) Status() services.ServiceStatus {
+func (s *SnowflakeService) Status() services.ServiceStatus {
 	if s.status != services.STOPPED {
-		_, err := s.GenerateId() // Check if the service is still ready by trying to generate an ID
+		ctx, cancel := context.WithTimeout(context.Background(), s.healthCheckTimeout)
+		defer cancel()
+
+		s.status = services.READY   // GenerateId() needs service to be READY to proceed
+		_, err := s.GenerateId(ctx) // Check if the service is still ready by trying to generate an ID
 		if err != nil {
 			s.status = services.ERROR
 			s.logger.Errorfln("[%s] Service is not ready, error: %v", s.Name(), err)
@@ -130,7 +160,7 @@ func (s *IdGeneratorService) Status() services.ServiceStatus {
 	return s.status
 }
 
-func (s *IdGeneratorService) Name() string {
+func (s *SnowflakeService) Name() string {
 	return "ID generator"
 }
 

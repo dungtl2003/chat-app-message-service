@@ -18,11 +18,17 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ROOT_DIR="$SCRIPT_DIR/.."
 OPENSSL_CONFIG_FILE=${OPENSSL_CONFIG_FILE:="$ROOT_DIR/etc/openssl.cnf"}
 CERT_DIRS=(
-    "$ROOT_DIR/environments/dev/snowflake/ssl/certs" 
-    "$ROOT_DIR/environments/dev/message/services/snowflake/ssl/certs" 
+    "$ROOT_DIR/environments/dev/snowflake/ssl" 
+    "$ROOT_DIR/environments/dev/message/services/snowflake/ssl" 
+
     "$ROOT_DIR/environments/test/snowflake/ssl/certs" 
-    "$ROOT_DIR/environments/test/message/services/snowflake/ssl/certs" 
+    "$ROOT_DIR/environments/test/message/services/snowflake/ssl/certs"
+    "$ROOT_DIR/environments/test/media/services/snowflake/ssl/certs"
 )
+FAKE_CERT_DIRS=(
+    "$ROOT_DIR/environments/test/message/services/snowflake/fake_ssl/certs"
+)
+
 
 TEMP_CERT_DIR=$(mktemp -d)
 
@@ -120,12 +126,47 @@ function init_dirs_if_not_exist() {
 
 function main() {
     cert_dirs=("${CERT_DIRS[@]}")
+    fake_cert_dirs=("${FAKE_CERT_DIRS[@]}")
 
-    init_dirs_if_not_exist "${cert_dirs[@]}"
+    init_dirs_if_not_exist "${cert_dirs[@]}" "${fake_cert_dirs[@]}"
 
     printf "Generating certificates...\n"
     gen
     copy_certs "${cert_dirs[@]}"
+
+    printf "Generating fake certificates...\n"
+    gen
+    copy_certs "${fake_cert_dirs[@]}"
+
+    # printf "Choose the environment to generate certificates: \n"
+    # cert_dirs=()
+    # fake_cert_dirs=()
+    # PS3="Enter your choice: "
+    # select opt in "${options[@]}"; do
+    #     case $opt in
+    #         "all")
+    #             cert_dirs=("${CERT_DIRS[@]}" "${TEST_CERT_DIRS[@]}")
+    #             fake_cert_dirs=("${TEST_FAKE_CERT_DIRS[@]}")
+    #             break
+    #             ;;
+    #         "test")
+    #             cert_dirs=("${TEST_CERT_DIRS[@]}")
+    #             fake_cert_dirs=("${TEST_FAKE_CERT_DIRS[@]}")
+    #             break
+    #             ;;
+    #         *) echo "Invalid option $REPLY";;
+    #     esac
+    # done
+    #
+    # init_dirs_if_not_exist "${cert_dirs[@]}" "${fake_cert_dirs[@]}"
+    #
+    # printf "Generating certificates...\n"
+    # gen
+    # copy_certs "${cert_dirs[@]}"
+    #
+    # printf "Generating fake certificates...\n"
+    # gen
+    # copy_certs "${fake_cert_dirs[@]}"
 }
 
 main

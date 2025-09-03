@@ -9,9 +9,7 @@ import (
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
-	"reflect"
 	"strings"
 
 	_ "github.com/lib/pq" // postgresql driver support
@@ -20,8 +18,8 @@ import (
 type DataFile struct {
 	UserFile         string
 	ConversationFile string
-	ParticipantFile  string
 	MessageFile      string
+	AssetFile        string
 }
 
 var (
@@ -52,7 +50,8 @@ func (d *DatabaseService) Status() services.ServiceStatus {
 	return d.status
 }
 
-// New creates a new database connection. The function returns a database connection and an error.
+// New creates a new database connection. The function returns a database
+// connection and an error. Remember to call Close() when done to release resources.
 func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 	client, err := sql.Open("postgres", url)
 	if err != nil {
@@ -68,7 +67,6 @@ func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 	d.logger.Infofln("[%s] Database connection created", d.Name())
 	d.logger.Infofln("[%s] Running", d.Name())
 	return d, nil
-
 }
 
 // Close closes the database connection. The function returns an error.
@@ -90,20 +88,19 @@ func (d *DatabaseService) Close() error {
 	return err
 }
 
-// CreateMessage create a new message. It will return the created message, status
-// and error if occurs.
-// The status code is 200 if the operation is done successfully.
-// The status code is 500 database error occurs.
-func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, int, error) {
+// CreateMessage create a new message. It will return the created message and
+// error if occurs.
+// ErrDatabaseError will be returned if database error occurs.
+func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, error) {
 	if d.Status() != services.READY {
 		d.logger.Errorfln("[%s] Database is not ready", d.Name())
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
 	tx, err := d.client.Begin()
 	if err != nil {
 		d.logger.Errorfln("client.Begin(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
 	defer func() {
@@ -114,53 +111,55 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 
 	query := `
 		INSERT INTO message.message (
-			id, content, type, created_at, updated_at, deleted_at, sender_id, receiver_id
+			id, content, type, created_at, updated_at, deleted_at, sender_id, receiver_id, reply_to_message_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		);`
-	args := []any{message.Id, message.Content, message.Type, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.SenderId, message.ReceiverId}
+	args := []any{message.Id, message.Content, message.Type, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.SenderId, message.ReceiverId, message.ReplyToMessageId}
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	_, err = tx.Exec(query, args...)
 	if err != nil {
 		d.logger.Errorfln("tx.Exec(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
-	fields := reflect.Indirect(reflect.ValueOf(model.Attachment{})).Type().NumField() + 1 // count message ID as well
-	args = make([]any, len(message.Attachments)*fields)
+	args = make([]any, len(message.Attachments)*6)
 	argsCount := 1
 	values := make([]string, len(message.Attachments))
 	for i, attachment := range message.Attachments {
-		values[i] = fmt.Sprintf(`($%d, $%d, $%d, $%d, $%d)`, argsCount, argsCount+1, argsCount+2, argsCount+3, argsCount+4)
+		values[i] = fmt.Sprintf(`($%d, $%d, $%d, $%d, $%d, $%d)`, argsCount, argsCount+1, argsCount+2, argsCount+3, argsCount+4, argsCount+5)
 		args[argsCount-1] = attachment.Id
-		args[argsCount] = attachment.ThumbURL
-		args[argsCount+1] = attachment.FileURL
-		args[argsCount+2] = attachment.DeletedAt
-		args[argsCount+3] = message.Id
-		argsCount += 5
+		args[argsCount] = attachment.AssetId
+		args[argsCount+1] = attachment.DeletedAt
+		args[argsCount+2] = attachment.MessageId
+		args[argsCount+3] = attachment.Position
+		args[argsCount+4] = attachment.Type
+		argsCount += 6
 	}
 	query = fmt.Sprintf(`
 		INSERT INTO message.attachment (
-			id, thumb_url, file_url, deleted_at, message_id
+			id, asset_id, deleted_at, message_id, position, type
 		) VALUES %s;
 	`, strings.Join(values, ", "))
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	_, err = tx.Exec(query, args...)
 	if err != nil {
 		d.logger.Errorfln("tx.Exec(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
 	query = `
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
                     	'id', a.id,
-						'thumb_url', a.thumb_url,
-						'file_url', a.file_url,
-						'deleted_at', a.deleted_at
+						'asset_id', a.asset_id,
+						'deleted_at', a.deleted_at,
+						'message_id', a.message_id,
+						'position', a.position,
+						'type', a.type
                 	)
             	) FILTER (WHERE a.id IS NOT NULL), '[]'
         	) AS attachments
@@ -174,39 +173,39 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 	var msg model.Message
 	var rawAttachments json.RawMessage
 	messageRow := tx.QueryRow(query, args...)
-	err = messageRow.Scan(&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &rawAttachments)
+	err = messageRow.Scan(
+		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &msg.ReplyToMessageId,
+		&rawAttachments)
 	if err != nil {
 		d.logger.Errorfln("messageRow.Scan(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
 	err = json.Unmarshal(rawAttachments, &msg.Attachments)
 	if err != nil {
 		d.logger.Errorfln("json.Unmarshal(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		d.logger.Errorfln("tx.Commit(): %v", err)
-		return nil, http.StatusInternalServerError, ErrDatabaseError
+		return nil, ErrDatabaseError
 	}
 
-	return &msg, http.StatusCreated, nil
+	return &msg, nil
 }
 
 // GetMessages get messsages from a conversation. You can filter it by:
 // `after` - get messages with ID bigger than `after`,
 // `limit` - get maximum of `limit` messages,
-// `orderBy` - get messages sorted by given order.
-// This function will return messages, a boolean describes if there are more messages
-// than the current result if you use `limit` option, or error if occurs.
-// The status code is 200 if the operation is done successfully.
-// The status code is 500 database error occurs.
-func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional[int64], limit types.Optional[int64], orderBy types.Optional[string]) ([]model.Message, bool, int, error) {
+// This function will return the end cursor, list of messages, hasMore flag
+// and error if occurs.
+// ErrDatabaseError will be returned if database error occurs.
+func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional[int64], limit types.Optional[int64]) (int64, []model.Message, bool, error) {
 	if d.Status() != services.READY {
 		d.logger.Errorfln("[%s] Database is not ready", d.Name())
-		return nil, false, http.StatusInternalServerError, ErrDatabaseError
+		return 0, nil, false, ErrDatabaseError
 	}
 
 	args := []any{}
@@ -223,23 +222,6 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 		argCount++
 	}
 
-	orderByPart := ""
-	if orderBy.Valid {
-		parts := strings.Split(orderBy.Value, ":")
-		if len(parts) != 2 {
-			d.logger.Debugfln("invalid orderBy value: %s", orderBy.Value)
-			return nil, false, http.StatusInternalServerError, ErrDatabaseError
-		}
-
-		// orderByPart = "ORDER BY m.content ASC"
-		// right now, key will always belong to message object
-		key := fmt.Sprintf("m.%s", parts[0])
-		order := parts[1]
-		orderByPart = fmt.Sprintf("ORDER BY %s", fmt.Sprintf("%s %s", key, order))
-	} else {
-		orderByPart = "ORDER BY m.id DESC"
-	}
-
 	limitPart := ""
 	if limit.Valid {
 		// +1 so we can check if there are more messages
@@ -248,19 +230,18 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 		argCount++
 	}
 
-	lastPart := strings.Join([]string{orderByPart, limitPart}, " ")
-	lastPart = strings.TrimSpace(lastPart)
-
 	query := fmt.Sprintf(`
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, receiver_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, receiver_id, reply_to_message_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
                     	'id', a.id,
-						'thumb_url', a.thumb_url,
-						'file_url', a.file_url,
-						'deleted_at', a.deleted_at
+						'asset_id', a.asset_id,
+						'deleted_at', a.deleted_at,
+						'message_id', a.message_id,
+						'position', a.position,
+						'type', a.type
                 	)
             	) FILTER (WHERE a.id IS NOT NULL), '[]'
         	) AS attachments
@@ -268,33 +249,41 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
     	LEFT JOIN message.attachment a ON m.id = a.message_id
     	WHERE %s
     	GROUP BY m.id
+		ORDER BY m.id DESC
 		%s;
-	`, strings.Join(whereClauses, " AND "), lastPart)
+	`, strings.Join(whereClauses, " AND "), limitPart)
 
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	messageRows, err := d.client.Query(query, args...)
 	if err != nil {
 		d.logger.Errorfln("client.Exec(): %v", err)
-		return nil, false, http.StatusInternalServerError, ErrDatabaseError
+		return 0, nil, false, ErrDatabaseError
 	}
 
 	messages := []model.Message{}
+	prevCursor := types.NewJsonInt64(0)
+	endCursor := types.NewJsonInt64(0)
 	var rawAttachments json.RawMessage
 	for messageRows.Next() {
+		prevCursor = endCursor
 		message := model.Message{}
-		err = messageRows.Scan(&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &rawAttachments)
+		err = messageRows.Scan(
+			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &message.ReplyToMessageId,
+			&rawAttachments,
+		)
 		if err != nil {
 			d.logger.Errorfln("messageRows.Scan(): %v", err)
-			return nil, false, http.StatusInternalServerError, ErrDatabaseError
+			return 0, nil, false, ErrDatabaseError
 		}
 
 		err = json.Unmarshal(rawAttachments, &message.Attachments)
 		if err != nil {
 			d.logger.Errorfln("json.Unmarshal(): %v", err)
-			return nil, false, http.StatusInternalServerError, ErrDatabaseError
+			return 0, nil, false, ErrDatabaseError
 		}
 
 		messages = append(messages, message)
+		endCursor = message.Id
 	}
 
 	hasMore := false
@@ -302,13 +291,14 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 		hasMore = true
 		// remove the last one
 		messages = messages[:len(messages)-1]
+		endCursor = prevCursor
 	}
 
-	return messages, hasMore, http.StatusOK, nil
+	return endCursor.Int64(), messages, hasMore, nil
 }
 
 // GetAllMessages get all messages in the database. The function is currently used
-// fro testing purposes. It will return messages or error if occurs.
+// for testing purposes. It will return messages or error if occurs.
 func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 	if d.Status() != services.READY {
 		d.logger.Errorfln("[%s] Database is not ready", d.Name())
@@ -317,14 +307,16 @@ func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 
 	messageRows, err := d.client.Query(`
 		SELECT
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
                     	'id', a.id,
-						'thumb_url', a.thumb_url,
-						'file_url', a.file_url,
-						'deleted_at', a.deleted_at
+						'asset_id', a.asset_id,
+						'deleted_at', a.deleted_at,
+						'message_id', a.message_id,
+						'position', a.position,
+						'type', a.type
                 	)
             	) FILTER (WHERE a.id IS NOT NULL), '[]'
         	) AS attachments
@@ -341,7 +333,9 @@ func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 	var rawAttachments json.RawMessage
 	for messageRows.Next() {
 		message := model.Message{}
-		err = messageRows.Scan(&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &rawAttachments)
+		err = messageRows.Scan(
+			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &message.ReplyToMessageId,
+			&rawAttachments)
 		if err != nil {
 			return nil, err
 		}
@@ -363,6 +357,36 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 		}
 	}()
 
+	// This must be done first to ensure that the assets are created before so
+	// that other data can reference them.
+	if dataFile.AssetFile != "" {
+		assetData, err := os.ReadFile(dataFile.AssetFile)
+		if err != nil {
+			return err
+		}
+		var assets []model.Asset
+		err = json.Unmarshal(assetData, &assets)
+		if err != nil {
+			return err
+		}
+		d.logger.Debugfln("[%s] Loaded %d assets from file: %s", d.Name(), len(assets), dataFile.AssetFile)
+		for _, asset := range assets {
+			query := `INSERT INTO media.asset (
+				id, public_id, width, height, format, resource_type, created_at, bytes, url, secure_url, asset_folder, original_filename, api_key
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+			);`
+			args := []any{
+				asset.Id, asset.PublicId, asset.Width, asset.Height, asset.Format, asset.ResourceType, asset.CreatedAt, asset.Bytes, asset.Url, asset.SecureUrl, asset.AssetFolder, asset.OriginalFilename, asset.ApiKey,
+			}
+			d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
+			_, err = tx.Exec(query, args...)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	if dataFile.UserFile != "" {
 		userData, err := os.ReadFile(dataFile.UserFile)
 		if err != nil {
@@ -373,16 +397,16 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Creating temporary users")
-		// Password is not hashed
+
+		d.logger.Debugfln("[%s] Loaded %d users from file: %s", d.Name(), len(users), dataFile.UserFile)
 		for _, user := range users {
 			query := `INSERT INTO chat_user.chat_user (
-            id, email, username, password, role, first_name, last_name, birthday, gender, phone_number, privacy, avatar, created_at, updated_at, deleted_at
+            id, email, username, password, role, first_name, last_name, birthday, gender, phone_number, privacy, avatar_id, created_at, updated_at, deleted_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
         );`
-			args := []any{user.Id, user.Email, user.Username, user.Password, user.Role, user.FirstName, user.LastName, user.Birthday, user.Gender, user.PhoneNumber, user.Privacy, user.Avatar, user.CreatedAt, user.UpdatedAt, user.DeletedAt}
-			d.logger.Debugfln("query: %s; args: %v", helper.StripWS(query), args)
+			args := []any{user.Id, user.Email, user.Username, user.Password, user.Role, user.FirstName, user.LastName, user.Birthday, user.Gender, user.PhoneNumber, user.Privacy, user.AvatarId, user.CreatedAt, user.UpdatedAt, user.DeletedAt}
+			d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
 			_, err = tx.Exec(query, args...)
 			if err != nil {
 				return err
@@ -400,22 +424,29 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Creating temporary conversations")
+
+		d.logger.Debugfln("[%s] Loaded %d conversations from file: %s", d.Name(), len(conversations), dataFile.ConversationFile)
 		for _, conversation := range conversations {
-			_, err = tx.Exec(`INSERT INTO conversation.conversation (
-			id, type, created_at, deleted_at
-		) VALUES (
-			$1, $2, $3, $4
-		);`, conversation.Id, conversation.Type, conversation.CreatedAt, conversation.DeletedAt)
+			query := `INSERT INTO conversation.conversation (
+				id, type, created_at, deleted_at
+			) VALUES (
+				$1, $2, $3, $4
+			);`
+			args := []any{conversation.Id, conversation.Type, conversation.CreatedAt, conversation.DeletedAt}
+			d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
+			_, err = tx.Exec(query, args...)
 			if err != nil {
 				return err
 			}
 			for _, participant := range conversation.Participants {
-				_, err = tx.Exec(`INSERT INTO conversation.participant (
-					id, user_id, name, conversation_id, role
+				query = `INSERT INTO conversation.participant (
+					id, user_id, nickname, conversation_id, role, avatar_id, username, email, first_name, last_name
 				) VALUES (
-					$1, $2, $3, $4, $5
-				);`, participant.Id, participant.UserId, participant.Name, conversation.Id, participant.Role)
+					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+				);`
+				args = []any{participant.Id, participant.UserId, participant.Nickname, conversation.Id, participant.Role, participant.AvatarId, participant.Username, participant.Email, participant.FirstName, participant.LastName}
+				d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
+				_, err = tx.Exec(query, args...)
 				if err != nil {
 					return err
 				}
@@ -424,38 +455,17 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 				if conversation.Group == nil {
 					return fmt.Errorf("group conversation %d is missing group information", conversation.Id.Int64())
 				}
-				_, err = tx.Exec(`INSERT INTO conversation.group_chat (
-			id, name, avatar, updated_at, conversation_id
-		) VALUES (
-			$1, $2, $3, $4, $5
-		);`, conversation.Group.Id, conversation.Group.Name, conversation.Group.Avatar, conversation.Group.UpdatedAt, conversation.Id)
+				query = `INSERT INTO conversation.group_chat (
+					id, name, avatar_id, conversation_id
+				) VALUES (
+					$1, $2, $3, $4
+				);`
+				args = []any{conversation.Group.Id, conversation.Group.Name, conversation.Group.AvatarId, conversation.Id}
+				d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
+				_, err = tx.Exec(query, args...)
 				if err != nil {
 					return err
 				}
-			}
-		}
-	}
-
-	if dataFile.ParticipantFile != "" {
-		participantData, err := os.ReadFile(dataFile.ParticipantFile)
-		if err != nil {
-			return err
-		}
-		var participants []model.Participant
-		err = json.Unmarshal(participantData, &participants)
-		if err != nil {
-			return err
-		}
-
-		fmt.Println("Creating temporary participants")
-		for _, participant := range participants {
-			_, err = tx.Exec(`INSERT INTO conversation.participant (
-							id, user_id, name, conversation_id, role
-						) VALUES (
-							$1, $2, $3, $4, $5
-						);`, participant.Id, participant.UserId, participant.Name, participant.ConversationId, participant.Role)
-			if err != nil {
-				return err
 			}
 		}
 	}
@@ -465,19 +475,22 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 		if err != nil {
 			return err
 		}
-		var messages []model.Message
+		messages := []model.Message{}
 		err = json.Unmarshal(messageData, &messages)
 		if err != nil {
 			return err
 		}
 
-		fmt.Println("Creating temporary messages")
+		d.logger.Debugfln("[%s] Loaded %d messages from file: %s", d.Name(), len(messages), dataFile.MessageFile)
 		for _, message := range messages {
-			_, err = tx.Exec(`INSERT INTO message.message (
+			query := `INSERT INTO message.message (
 				id, content, sender_id, receiver_id, created_at, updated_at, deleted_at, type
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8
-			);`, message.Id, message.Content, message.SenderId, message.ReceiverId, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.Type)
+			);`
+			args := []any{message.Id, message.Content, message.SenderId, message.ReceiverId, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.Type}
+			d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
+			_, err = tx.Exec(query, args...)
 			if err != nil {
 				return err
 			}

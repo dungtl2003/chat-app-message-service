@@ -1,0 +1,45 @@
+[
+    {
+        "id": 1,
+        "public_id": "sample_public_id",
+        "width": 1920,
+        "height": 1080,
+        "format": "jpg",
+        "resource_type": "image",
+        "created_at": "2023-10-01T12:00:00Z",
+        "bytes": 2048000,
+        "url": "http://example.com/sample.jpg",
+        "secure_url": "https://example.com/sample.jpg",
+        "asset_folder": "sample_folder",
+        "original_filename": "sample_image",
+        "api_key": ""
+    },
+    {
+        "id": 2,
+        "public_id": "another_public_id",
+        "width": 1280,
+        "height": 720,
+        "format": "png",
+        "resource_type": "image",
+        "created_at": "2023-10-02T14:30:00Z",
+        "bytes": 1024000,
+        "url": "http://example.com/another_image.png",
+        "secure_url": "https://example.com/another_image.png",
+        "asset_folder": "another_folder",
+        "original_filename": "another_image",
+        "api_key": ""
+    },
+    {
+        "id": 3,
+        "width": 1920,
+        "height": 1080,
+        "resource_type": "image",
+        "created_at": "2023-10-03T16:45:00Z",
+        "bytes": 5120000,
+        "url": "http://example.com/high_res_image.jpg",
+        "secure_url": "https://example.com/high_res_image.jpg",
+        "asset_folder": "high_res_folder",
+        "original_filename": "high_res_image",
+        "api_key": ""
+    }
+]

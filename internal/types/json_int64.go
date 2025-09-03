@@ -50,9 +50,9 @@ func (j *JsonInt64) Scan(value any) error {
 		return fmt.Errorf("jsonInt64: Scan(nil)")
 	}
 
-	switch value.(type) {
+	switch value := value.(type) {
 	case int64:
-		j.int64 = value.(int64)
+		j.int64 = value
 		return nil
 	default:
 		return fmt.Errorf("jsonInt64: unsupported type: %T", value)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"dungtl2003/chat-app-message-service/internal/logging"
 	"fmt"
 	"log"
 	"os"
@@ -9,21 +10,30 @@ import (
 )
 
 type LogConfig struct {
-	Level string // INFO, DEBUG, WARN, ERROR
-	Kind  string // TEXT or JSON
+	Level logging.LoggerLevel
+	Kind  logging.LoggerKind
 }
 
-type SnowflakeConfig struct {
+type IdGeneratorConfig struct {
 	Addr    string
 	CertDir string
 }
 
+type DatabaseConfig struct {
+	URL string
+}
+
+type MediaConfig struct {
+	URL string
+}
+
 type Config struct {
-	ServerPort      int
-	Env             string
-	LogConfig       *LogConfig
-	DatabaseURL     string
-	SnowflakeConfig *SnowflakeConfig
+	ServerPort        int
+	Env               string
+	LogConfig         *LogConfig
+	IdGeneratorConfig *IdGeneratorConfig
+	DatabaseConfig    *DatabaseConfig
+	MediaConfig       *MediaConfig
 }
 
 // LoadConfig loads the configuration from env file. It will return Config instance
@@ -42,11 +52,15 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = c.setDatabaseURL()
+	err = c.setDatabaseConfig()
 	if err != nil {
 		return nil, err
 	}
-	err = c.setSnowflakeConfig()
+	err = c.setIdGeneratorConfig()
+	if err != nil {
+		return nil, err
+	}
+	err = c.setMediaConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +77,15 @@ func (l *LogConfig) String() string {
 	return fmt.Sprintf("LogConfig{%s}", strings.Join(parts, ", "))
 }
 
-func (s *SnowflakeConfig) String() string {
+func (m *MediaConfig) String() string {
+	return fmt.Sprintf("MediaConfig{URL: %s}", m.URL)
+}
+
+func (d *DatabaseConfig) String() string {
+	return fmt.Sprintf("DatabaseConfig{URL: %s}", d.URL)
+}
+
+func (s *IdGeneratorConfig) String() string {
 	parts := []string{
 		fmt.Sprintf("ADDR: %s", s.Addr),
 		fmt.Sprintf("CERT_DIR: %s", s.CertDir),
@@ -77,8 +99,9 @@ func (c *Config) String() string {
 		fmt.Sprintf("SERVER_PORT: %d", c.ServerPort),
 		fmt.Sprintf("LOG_CONFIG: %s", c.LogConfig),
 		fmt.Sprintf("ENV: %s", c.Env),
-		fmt.Sprintf("DATABASE_URL: %s", c.DatabaseURL),
-		fmt.Sprintf("SNOWFLAKE_CONFIG: %s", c.SnowflakeConfig),
+		fmt.Sprintf("DATABASE_CONFIG: %s", c.DatabaseConfig),
+		fmt.Sprintf("ID_GENERATOR_CONFIG: %s", c.IdGeneratorConfig),
+		fmt.Sprintf("MEDIA_CONFIG: %s", c.MediaConfig),
 	}
 
 	return fmt.Sprintf("Config{%s}", strings.Join(parts, ", "))
@@ -86,45 +109,58 @@ func (c *Config) String() string {
 
 func (c *Config) setLogConfig() error {
 	c.LogConfig = &LogConfig{}
+	logLevel := logging.INFO // Default log level
+	logKind := logging.TEXT  // Default log kind
 
-	logLevel, has := os.LookupEnv("LOG_LEVEL")
-	if !has {
-		logLevel = "INFO"
-	}
-	if logLevel != "INFO" && logLevel != "DEBUG" && logLevel != "WARN" && logLevel != "ERROR" {
-		return fmt.Errorf("`LOG_LEVEL=%s` is invalid. It can only be `INFO`, `DEBUG`, `WARN` or `ERROR`\n", logLevel)
+	logLevelStr, has := os.LookupEnv("LOG_LEVEL")
+	if has {
+		if !logging.IsValidLoggerLevel(logLevelStr) {
+			return fmt.Errorf("`LOG_LEVEL=%s` is invalid", logLevelStr)
+		}
+		logLevel = logging.LoggerLevel(logLevelStr)
 	}
 
 	kind, has := os.LookupEnv("LOG_KIND")
-	if !has {
-		kind = "TEXT"
-	}
-
-	if kind != "TEXT" && kind != "JSON" {
-		return fmt.Errorf("`LOG_KIND=%s` is invalid, it can only be `TEXT` or `JSON`", kind)
+	if has {
+		if !logging.IsValidLoggerKind(kind) {
+			return fmt.Errorf("`LOG_KIND=%s` is invalid", kind)
+		}
+		logKind = logging.LoggerKind(kind)
 	}
 
 	c.LogConfig.Level = logLevel
-	c.LogConfig.Kind = kind
+	c.LogConfig.Kind = logKind
+	return nil
+}
+
+func (c *Config) setMediaConfig() error {
+	c.MediaConfig = &MediaConfig{}
+
+	mediaUrl, has := os.LookupEnv("MEDIA_SERVICE_URL")
+	if !has {
+		return fmt.Errorf("MEDIA_SERVICE_URL not found")
+	}
+
+	c.MediaConfig.URL = mediaUrl
 
 	return nil
 }
 
-func (c *Config) setSnowflakeConfig() error {
-	c.SnowflakeConfig = &SnowflakeConfig{}
+func (c *Config) setIdGeneratorConfig() error {
+	c.IdGeneratorConfig = &IdGeneratorConfig{}
 
-	addr, has := os.LookupEnv("ID_GENERATOR_SERVICE_ADDR")
+	addr, has := os.LookupEnv("ID_GENERATOR_ADDR")
 	if !has {
-		return fmt.Errorf("ID_GENERATOR_SERVICE_ADDR not found")
+		return fmt.Errorf("ID_GENERATOR_ADDR not found")
 	}
 
-	certDir, has := os.LookupEnv("ID_GENERATOR_SERVICE_CERT_DIR")
+	certDir, has := os.LookupEnv("ID_GENERATOR_CERT_DIR")
 	if !has {
 		certDir = ""
 	}
 
-	c.SnowflakeConfig.Addr = addr
-	c.SnowflakeConfig.CertDir = certDir
+	c.IdGeneratorConfig.Addr = addr
+	c.IdGeneratorConfig.CertDir = certDir
 
 	return nil
 }
@@ -150,9 +186,10 @@ func (c *Config) setServerPort() error {
 }
 
 func (c *Config) setEnv() error {
-	env, has := os.LookupEnv("ENV")
+	log.Println("Setting ENVIRONMENT")
+	env, has := os.LookupEnv("ENVIRONMENT")
 	if !has {
-		log.Println("ENV not found, setting to dev")
+		log.Println("ENVIRONMENT not found, setting to dev")
 		env = "dev"
 	}
 	c.Env = env
@@ -160,12 +197,14 @@ func (c *Config) setEnv() error {
 	return nil
 }
 
-func (c *Config) setDatabaseURL() error {
-	databaseURL, has := os.LookupEnv("DATABASE_URL")
+func (c *Config) setDatabaseConfig() error {
+	c.DatabaseConfig = &DatabaseConfig{}
+	log.Println("Setting DATABASE_CONFIG")
+	dbUrl, has := os.LookupEnv("DATABASE_URL")
 	if !has {
-		return fmt.Errorf("DATABASE_URL not found")
+		return fmt.Errorf("DATABASE_URL is required")
 	}
+	c.DatabaseConfig.URL = dbUrl
 
-	c.DatabaseURL = databaseURL
 	return nil
 }

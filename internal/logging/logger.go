@@ -1,37 +1,61 @@
 package logging
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 )
 
-func NewLogger(level string, kind string) (*slog.Logger, error) {
+const (
+	DEBUG LoggerLevel = "DEBUG"
+	INFO  LoggerLevel = "INFO"
+	WARN  LoggerLevel = "WARN"
+	ERROR LoggerLevel = "ERROR"
+
+	TEXT LoggerKind = "TEXT"
+	JSON LoggerKind = "JSON"
+)
+
+type LoggerLevel string
+type LoggerKind string
+
+func NewLogger(level LoggerLevel, kind LoggerKind) (*slog.Logger, error) {
 	writer := os.Stdout
 
 	var slogLogLevel slog.Level
 	switch level {
-	case "DEBUG":
+	case DEBUG:
 		slogLogLevel = slog.LevelDebug
-	case "INFO":
+	case INFO:
 		slogLogLevel = slog.LevelInfo
-	case "WARN":
+	case WARN:
 		slogLogLevel = slog.LevelWarn
-	case "ERROR":
+	case ERROR:
 		slogLogLevel = slog.LevelError
-	default:
-		return nil, fmt.Errorf("invalid log level")
 	}
 
 	var handler slog.Handler
 	switch kind {
-	case "TEXT":
+	case TEXT:
 		handler = slog.NewTextHandler(writer, &slog.HandlerOptions{Level: slogLogLevel})
-	case "JSON":
+	case JSON:
 		handler = slog.NewJSONHandler(writer, &slog.HandlerOptions{Level: slogLogLevel})
-	default:
-		return nil, fmt.Errorf("invalid log kind")
 	}
 
 	return slog.New(handler), nil
+}
+
+func IsValidLoggerLevel(level string) bool {
+	switch level {
+	case string(DEBUG), string(INFO), string(WARN), string(ERROR):
+		return true
+	}
+	return false
+}
+
+func IsValidLoggerKind(kind string) bool {
+	switch kind {
+	case string(TEXT), string(JSON):
+		return true
+	}
+	return false
 }

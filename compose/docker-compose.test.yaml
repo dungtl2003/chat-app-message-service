@@ -1,32 +1,83 @@
 services:
-  snowflake:
-    container_name: chat-app-snowflake-service
-    image: ilikeblue/snowflake-uuid:dev-latest
+  media:
+    container_name: chat-app-media-service
+    image: ilikeblue/chat-app-media-service:dev-latest
     labels:
       - 'custom.project=chat'
-      - 'custom.service=snowflake'
+      - 'custom.service=media'
     ports:
-      - "9000:80"
+      - "8300:80"
     environment:
-      - WORKER_ID=1
-      - CERT_DIR=/etc/chat-app/ssl/certs
+      - DATABASE_URL=postgresql://media_service:media1234@chat-app-db-service:5432/chat-app?sslmode=disable
+      - PORT=80
+      - LOG_LEVEL=DEBUG
+      - LOG_KIND=TEXT
+      - ID_GENERATOR_ADDR=chat-app-snowflake-tls-service:80
+      - ID_GENERATOR_CERT_DIR=/etc/chat-app/services/snowflake/ssl/certs
+      - CLOUDINARY_URL=https://fake-cloudinary-url.com
+      - ENVIRONMENT=test
+      - KAFKA_BROKERS=broker-1:19092,broker-2:19092,broker-3:19092
     volumes:
-      - ../environments/dev/snowflake/ssl/certs:/etc/chat-app/ssl/certs:ro 
+      - ../environments/test/media/services/snowflake/ssl/certs:/etc/chat-app/services/snowflake/ssl/certs:ro 
     networks:
-      - chat-app-snowflake-network
+      - chat-app-media-network
+      - chat-app-db-network
+      - chat-app-id-generator-network
+      - chat-app-kafka-network
     healthcheck:
-      test: ["CMD", "/bin/grpc_health_probe", 
-        "-addr=:80", 
-        "-tls", 
-        "-tls-ca-cert=/etc/chat-app/ssl/certs/ca_cert.pem", 
-        "-tls-client-cert=/etc/chat-app/ssl/certs/client_cert.pem", 
-        "-tls-client-key=/etc/chat-app/ssl/certs/client_key.pem"
-      ]
-      retries: 5
+      test: ["CMD-SHELL", "curl -s http://localhost:80/healthcheck | jq -e '.status == \"UP\"' > /dev/null"]
+      retries: 3
       start_period: 15s
       start_interval: 3s
       interval: 30s
       timeout: 5s
+    depends_on:
+      pgdb:
+        condition: service_healthy 
+      topics-init:
+        condition: service_healthy # it has consumers so it needs to wait for topics to be created
+
+  snowflake-tls:
+    container_name: chat-app-snowflake-tls-service
+    image: ilikeblue/snowflake-uuid:dev-latest
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=snowflake'
+      - 'custom.option=TLS'
+    ports:
+      - "9000:80"
+    environment:
+      - WORKER_ID=1
+      - CERT_DIR=/etc/certs
+    volumes:
+      - ../environments/test/snowflake/ssl/certs:/etc/certs:ro 
+    networks:
+      - chat-app-id-generator-network
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", "-addr=:80", "-tls", "-tls-ca-cert=/etc/certs/ca_cert.pem", "-tls-client-cert=/etc/certs/client_cert.pem", "-tls-client-key=/etc/certs/client_key.pem"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  snowflake-non-tls:
+    container_name: chat-app-snowflake-non-tls-service
+    image: ilikeblue/snowflake-uuid:dev-latest
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=snowflake'
+      - 'custom.option=non-TLS'
+    ports:
+      - "9001:80"
+    networks:
+      - chat-app-id-generator-network
+    environment:
+      - WORKER_ID=2 
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", "-addr=:80"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 
   pgdb:
     container_name: chat-app-db-service
@@ -46,11 +97,212 @@ services:
       - chat-app-db-network
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "admin", "-d", "chat-app"]
+      interval: 5s
+      timeout: 5s
       retries: 5
+
+  controller-1:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-controller-1
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=controller'
+      - 'custom.option=1'
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=controller
+      - KAFKA_LISTENERS=CONTROLLER://:9093
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-controller controller-1:9093 || exit 1"]
+      retries: 3
       start_period: 15s
       start_interval: 3s
       interval: 30s
       timeout: 5s
+
+  controller-2:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-controller-2
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=controller'
+      - 'custom.option=2'
+    environment:
+      - KAFKA_NODE_ID=2
+      - KAFKA_PROCESS_ROLES=controller
+      - KAFKA_LISTENERS=CONTROLLER://:9093
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-controller controller-2:9093 || exit 1"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+
+  controller-3:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-controller-3
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=controller'
+      - 'custom.option=3'
+    environment:
+      - KAFKA_NODE_ID=3
+      - KAFKA_PROCESS_ROLES=controller
+      - KAFKA_LISTENERS=CONTROLLER://:9093
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-controller controller-3:9093 || exit 1"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+
+  broker-1:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-broker-1
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=broker'
+      - 'custom.option=1'
+    environment:
+      - KAFKA_NODE_ID=4
+      - KAFKA_PROCESS_ROLES=broker
+      - KAFKA_LISTENERS=PLAINTEXT://:19092,PLAINTEXT_HOST://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://broker-1:19092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+    ports:
+      - 29092:9092
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server broker-1:19092 || exit 1"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+    depends_on:
+      - controller-1
+      - controller-2
+      - controller-3
+
+  broker-2:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-broker-2
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=broker'
+      - 'custom.option=2'
+    environment:
+      - KAFKA_NODE_ID=5
+      - KAFKA_PROCESS_ROLES=broker
+      - KAFKA_LISTENERS=PLAINTEXT://:19092,PLAINTEXT_HOST://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://broker-2:19092,PLAINTEXT_HOST://localhost:39092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+    ports:
+      - 39092:9092
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server broker-2:19092 || exit 1"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+    depends_on:
+      - controller-1
+      - controller-2
+      - controller-3
+
+  broker-3:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-broker-3
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=broker'
+      - 'custom.option=3'
+    environment:
+      - KAFKA_NODE_ID=6
+      - KAFKA_PROCESS_ROLES=broker
+      - KAFKA_LISTENERS=PLAINTEXT://:19092,PLAINTEXT_HOST://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://broker-2:19092,PLAINTEXT_HOST://localhost:49092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@chat-app-kafka-controller-1:9093,2@chat-app-kafka-controller-2:9093,3@chat-app-kafka-controller-3:9093
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+    ports:
+      - 49092:9092
+    networks:
+      - chat-app-kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server broker-3:19092 || exit 1"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 30s
+      timeout: 5s
+    depends_on:
+      - controller-1
+      - controller-2
+      - controller-3
+
+  topics-init:
+    image: apache/kafka:latest
+    container_name: chat-app-kafka-topics-init
+    labels:
+      - 'custom.project=chat'
+      - 'custom.service=topics-init'
+    volumes:
+      - ../scripts/init_topics.sh:/init-topics.sh:ro
+    entrypoint: [ "bash", "/init-topics.sh" ]
+    environment:
+      TOPICS: >
+        asset-resource-delete:3:3
+        participant-resource-update:3:3
+      BOOTSTRAP: broker-1:19092
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/topics-created"]
+      retries: 3
+      start_period: 15s
+      start_interval: 3s
+      interval: 5s
+      timeout: 5s
+    networks:
+      - chat-app-kafka-network
+    depends_on:
+      - broker-1
 
 volumes:
   chat-app-db-data:
@@ -61,6 +313,12 @@ networks:
   chat-app-db-network:
     driver: bridge
     name: chat-app-db-network
-  chat-app-snowflake-network:
+  chat-app-id-generator-network:
     driver: bridge
-    name: chat-app-snowflake-network
+    name: chat-app-id-generator-network
+  chat-app-kafka-network:
+    driver: bridge
+    name: chat-app-kafka-network
+  chat-app-media-network:
+    driver: bridge
+    name: chat-app-media-network

@@ -6,24 +6,28 @@ SERVER_PORT ?= 80
 CURRENT_DIR = $(shell pwd)
 DOCKER_IMAGE_NAME = ${DOCKER_USERNAME}/${APPLICATION_NAME}
 
-ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-OUT_DIR = ./bin
-OUT_FILE = $(OUT_DIR)/main
-SRC_FILES = ./cmd/server/main.go $(shell find ./internal/ -name '*.go') $(shell find ./tests/ -name '*.go')
-
 _BUILD_ARGS_TAG ?= ${GIT_HASH}
 _BUILD_ARGS_RELEASE_TAG ?= latest
 _BUILD_ARGS_DOCKERFILE ?= Dockerfile
 
-.PHONY: test
-test: export TEST_OUT = $(ROOT_DIR)/reports/results
-test: export DB_LOG = $(ROOT_DIR)/reports/db.log
-test: export USER_SERVICE_LOG = $(ROOT_DIR)/reports/user_service.log
-test: export SNOWFLAKE_SERVICE_LOG = $(ROOT_DIR)/reports/snowflake_service.log
+ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+OUT_DIR = ./bin
+OUT_FILE = $(OUT_DIR)/main
+SRC_FILES = ./cmd/server/main.go $(shell find ./internal/ -name '*.go')
+TEST_LOGS_DIR = $(ROOT_DIR)/tests/logs
+
+PROTO_IN_DIR = ./proto
+PROTO_OUT_DIRS = ./internal/services/idgen/proto
+
+.PHONY: test 
+test: export TEST_OUT = $(TEST_LOGS_DIR)/results
 test: build certs
-	@rm -rf reports
-	@mkdir reports
 	@echo "Running tests"
+# ifdef FORCE
+# 	go clean -testcache
+# endif
+	@rm -rf $(TEST_LOGS_DIR)
+	@go clean -testcache
 ifdef JSON
 	TEST_OUT=$(TEST_OUT) ./scripts/test_local.sh go run ./cmd/test/run_tests.go -json
 	./scripts/read_test_stats.sh $(TEST_OUT)
@@ -31,63 +35,67 @@ else
 	./scripts/test_local.sh go run ./cmd/test/run_tests.go
 endif
 
-.PHONY: proto
-proto:
-	$(info ==================== generating new proto files ====================)
-	@mkdir -p internal/services/snowflake/proto
-	protoc --proto_path=proto proto/*.proto  --go_out=:internal/services/snowflake/proto --go-grpc_out=:internal/services/snowflake/proto
-
-.PHONY: run
-run: build
-	echo "Running application"
-	./scripts/run.sh $(OUT_FILE)
-
-.PHONY: build
-build: $(OUT_FILE)
-
-$(OUT_FILE): $(SRC_FILES)
-	@echo "$(SRC_FILES)"
-	@echo "Building application"
-	@mkdir -p $(OUT_DIR)
-	go build -o $(OUT_FILE) $<
-
-.PHONY: clean
-clean:
-	@echo "Cleaning up"
-	rm -rf $(OUT_DIR)
+# use this command to run service without building to container yet
+.PHONY: run_with_services
+run_with_services: $(OUT_FILE)
+ifdef ENVIRONMENT
+	@echo "Running application with services in $(ENVIRONMENT) environment"
+	COMPOSE_FILE=docker-compose.$(ENVIRONMENT).yaml ./scripts/run_with_services.sh $(OUT_FILE)
+else
+	@echo "Running application with services in default environment"
+	./scripts/run_with_services.sh $(OUT_FILE)
+endif
 
 .PHONY: certs
 certs:
 	@echo "Generating certs"	
 	./scripts/gen_certs.sh
 
-.PHONY: up_% certs
-up_%:
-	$(info ==================== up docker compose ====================)
-	docker-compose -f compose/docker-compose.$*.yaml up -d
+.PHONY: build
+build: $(OUT_FILE)
 
-.PHONY: down_%
-down_%:
-	$(info ==================== down docker compose ====================)
-	docker-compose -f compose/docker-compose.$*.yaml down
+$(OUT_FILE): $(SRC_FILES) $(OUT_DIR) $(PROTO_OUT_DIRS)/*.pb.go
+	echo "Building application"
+	go build -o $(OUT_FILE) $<
+
+$(PROTO_OUT_DIRS)/%.pb.go: $(PROTO_IN_DIR) $(PROTO_OUT_DIRS) $(PROTO_IN_DIR)/%.proto
+	echo "Generating proto files" 
+	protoc --proto_path=$(PROTO_IN_DIR) $(PROTO_IN_DIR)/*.proto  --go_out=:$(PROTO_OUT_DIRS) --go-grpc_out=:$(PROTO_OUT_DIRS)
+
+$(PROTO_OUT_DIRS):
+	echo "Creating proto output directories"
+	mkdir -p $@
+
+$(PROTO_GRPC_OUT_DIRS):
+	echo "Creating proto grpc output directories"
+	mkdir -p $(PROTO_GRPC_OUT_DIRS)
+
+$(PROTO_IN_DIR):
+	echo "Creating proto directory"
+	mkdir -p $(PROTO_IN_DIR)
+
+$(OUT_DIR):
+	echo "Creating output directory"
+	mkdir -p $(OUT_DIR)
+
 
 _dbuilder:
 	$(info ==================== building dockerfile ====================)
-	docker buildx build --platform linux/amd64 --tag ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} .
+	docker buildx build --platform linux/amd64 --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} .
 
 _dbuilder_debug:
 	$(info ==================== building dockerfile with debug on ====================)
-	docker buildx build --debug --progress=plain --no-cache --platform linux/amd64 --tag ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} . 
+	docker buildx build --debug --progress=plain --no-cache --platform linux/amd64 --tag ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_TAG} -f ${DOCKER_FOLDER}/${_BUILD_ARGS_DOCKERFILE} . 
 
 _dpusher:
 	$(info ==================== pushing dockerfile ====================)
-	docker push ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG}
+	docker push ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_TAG}
 
 _dreleaser:
 	$(info ==================== releasing dockerfile ====================)
-	docker pull ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG}
-	docker tag  ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_TAG} ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_RELEASE_TAG}
-	docker push ${DOCKER_IMAGE_NAME}:${_BUILD_ARGS_RELEASE_TAG}
+	docker pull ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_TAG}
+	docker tag  ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_TAG} ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_RELEASE_TAG}
+	docker push ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_RELEASE_TAG}
 
 .PHONY: dbuild
 dbuild:
@@ -139,3 +147,13 @@ ci_%:
 	$(MAKE) dpush_$*
 	$(MAKE) drelease_$*
 	$(MAKE) clean_image
+
+.PHONY: up_% certs
+up_%:
+	$(info ==================== up docker compose ====================)
+	docker-compose -f compose/docker-compose.$*.yaml up -d
+
+.PHONY: down_%
+down_%:
+	$(info ==================== down docker compose ====================)
+	docker-compose -f compose/docker-compose.$*.yaml down

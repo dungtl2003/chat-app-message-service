@@ -6,11 +6,11 @@ type Gender string
 type UserRole string
 
 const (
-	MALE   = "MALE"
-	FEMALE = "FEMALE"
+	MALE   Gender = "MALE"
+	FEMALE Gender = "FEMALE"
 
-	ADMIN = "ADMIN"
-	USER  = "USER"
+	ADMIN UserRole = "ADMIN"
+	USER  UserRole = "USER"
 )
 
 type ChatUser struct {
@@ -25,17 +25,9 @@ type ChatUser struct {
 	Gender         types.JsonNullString `json:"gender"`
 	PhoneNumber    types.JsonNullString `json:"phone_number"`
 	Privacy        types.JsonNullString `json:"privacy"`
-	Avatar         types.JsonNullString `json:"avatar"`
+	AvatarId       types.JsonNullInt64  `json:"avatar_id"`
 	SessionVersion types.JsonInt64      `json:"session_version"`
 	CreatedAt      types.JsonTime       `json:"created_at"`
-	UpdatedAt      types.JsonNullTime   `json:"updated_at"`
+	UpdatedAt      types.JsonTime       `json:"updated_at"`
 	DeletedAt      types.JsonNullTime   `json:"deleted_at"`
-}
-
-func IsRole(role string) bool {
-	return role == ADMIN || role == USER
-}
-
-func IsGender(gender string) bool {
-	return gender == MALE || gender == FEMALE
 }
