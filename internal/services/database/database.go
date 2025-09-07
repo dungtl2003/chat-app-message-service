@@ -220,7 +220,8 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 	argCount := 2
 	if after.Valid {
 		args = append(args, after.Value)
-		whereClauses = append(whereClauses, fmt.Sprintf("m.id > $%d", argCount))
+		// get messages with ID less than `after` (descending order)
+		whereClauses = append(whereClauses, fmt.Sprintf("m.id < $%d", argCount))
 		argCount++
 	}
 
