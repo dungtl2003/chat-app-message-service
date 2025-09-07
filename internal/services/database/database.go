@@ -123,29 +123,31 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 		return nil, ErrDatabaseError
 	}
 
-	args = make([]any, len(message.Attachments)*6)
-	argsCount := 1
-	values := make([]string, len(message.Attachments))
-	for i, attachment := range message.Attachments {
-		values[i] = fmt.Sprintf(`($%d, $%d, $%d, $%d, $%d, $%d)`, argsCount, argsCount+1, argsCount+2, argsCount+3, argsCount+4, argsCount+5)
-		args[argsCount-1] = attachment.Id
-		args[argsCount] = attachment.AssetId
-		args[argsCount+1] = attachment.DeletedAt
-		args[argsCount+2] = attachment.MessageId
-		args[argsCount+3] = attachment.Position
-		args[argsCount+4] = attachment.Type
-		argsCount += 6
-	}
-	query = fmt.Sprintf(`
+	if len(message.Attachments) > 0 {
+		args = make([]any, len(message.Attachments)*6)
+		argsCount := 1
+		values := make([]string, len(message.Attachments))
+		for i, attachment := range message.Attachments {
+			values[i] = fmt.Sprintf(`($%d, $%d, $%d, $%d, $%d, $%d)`, argsCount, argsCount+1, argsCount+2, argsCount+3, argsCount+4, argsCount+5)
+			args[argsCount-1] = attachment.Id
+			args[argsCount] = attachment.AssetId
+			args[argsCount+1] = attachment.DeletedAt
+			args[argsCount+2] = attachment.MessageId
+			args[argsCount+3] = attachment.Position
+			args[argsCount+4] = attachment.Type
+			argsCount += 6
+		}
+		query = fmt.Sprintf(`
 		INSERT INTO message.attachment (
 			id, asset_id, deleted_at, message_id, position, type
 		) VALUES %s;
 	`, strings.Join(values, ", "))
-	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
-	_, err = tx.Exec(query, args...)
-	if err != nil {
-		d.logger.Errorfln("tx.Exec(): %v", err)
-		return nil, ErrDatabaseError
+		d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+		_, err = tx.Exec(query, args...)
+		if err != nil {
+			d.logger.Errorfln("tx.Exec(): %v", err)
+			return nil, ErrDatabaseError
+		}
 	}
 
 	query = `
@@ -517,6 +519,7 @@ func (d *DatabaseService) ClearAllData() error {
 	queries := []string{
 		`DELETE FROM chat_user.chat_user;`,
 		`DELETE FROM conversation.conversation;`,
+		`DELETE FROM media.asset;`,
 	}
 
 	for _, query := range queries {
