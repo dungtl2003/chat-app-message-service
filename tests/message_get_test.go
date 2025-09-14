@@ -306,7 +306,7 @@ func TestGetMessagesWithDifferentIdOffsetsShouldWork(t *testing.T) {
 			expectedMessages := h.Filter(presetMessages, func(msg model.Message) bool {
 				after, err := strconv.ParseInt(tc.after, 10, 64)
 				require.NoError(t, err)
-				return msg.Id.Int64() > after
+				return msg.Id.Int64() < after // ID desc
 			})
 
 			require.EqualValues(t, http.StatusOK, resp.StatusCode)
@@ -372,7 +372,7 @@ func TestGetMessagesWithAllOptsShouldWork(t *testing.T) {
 		expectedMessages := make([]model.Message, len(presetMessages))
 		copy(expectedMessages, presetMessages)
 		expectedMessages = h.Filter(expectedMessages, func(m model.Message) bool {
-			return m.Id.Int64() > int64(after)
+			return m.Id.Int64() < int64(after)
 		})
 		sort.Slice(expectedMessages, func(i, j int) bool {
 			return expectedMessages[i].Id.Int64() > expectedMessages[j].Id.Int64()
