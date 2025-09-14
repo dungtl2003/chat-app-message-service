@@ -344,7 +344,7 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			err := kafka.WriteMessages(appCtx.KafkaWriterService, []kafka.KMessage[kafka.MessageResourceCreatedEvent]{
 				{
 					Topic: kafka.MESSAGE_RESOURCE_CREATED_TOPIC,
-					Key:   fmt.Sprintf("%d", msg.Id),
+					Key:   kafka.CreateEventKey(msg.ReceiverId.Int64()),
 					Value: kafka.MessageResourceCreatedEvent{
 						Message: *msg,
 					},

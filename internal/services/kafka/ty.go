@@ -3,6 +3,7 @@ package kafka
 import (
 	"dungtl2003/chat-app-message-service/internal/model"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -60,4 +61,8 @@ func (m KMessage[T]) ToKafkaMessage() kafka.Message {
 		Key:   []byte(m.Key),
 		Value: m.Value.ToJson(),
 	}
+}
+
+func CreateEventKey(conversationId int64) string {
+	return fmt.Sprintf("conversation-%d", conversationId)
 }

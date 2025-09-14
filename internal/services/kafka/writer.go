@@ -26,11 +26,8 @@ func NewKafkaWriterService(brokers []string, logger *logging.LoggerWrapper, ctx 
 	}
 
 	w := &kafka.Writer{
-		Addr: kafka.TCP(brokers...),
-		// Note that this will not push messages to partitions based on the key,
-		// but will use the LeastBytes balancer to distribute messages across
-		// partitions.
-		Balancer:     &kafka.LeastBytes{},
+		Addr:         kafka.TCP(brokers...),
+		Balancer:     &kafka.Hash{},
 		MaxAttempts:  10,
 		RequiredAcks: kafka.RequireOne,
 	}

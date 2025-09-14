@@ -114,7 +114,7 @@ func TestCreateMessageShouldWork(t *testing.T) {
 		m, err = r.ReadMessage(timeoutCtx)
 		if err == nil {
 			// check the received message is for the created message
-			require.EqualValues(t, string(m.Key), fmt.Sprintf("%d", actualMessage.Id))
+			require.EqualValues(t, string(m.Key), kafka.CreateEventKey(actualMessage.ReceiverId.Int64()))
 			require.EqualValues(t, string(m.Topic), kafka.MESSAGE_RESOURCE_CREATED_TOPIC)
 			require.NotEmpty(t, m.Value)
 			var receivedMessageEvent kafka.MessageResourceCreatedEvent
