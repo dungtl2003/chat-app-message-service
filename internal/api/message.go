@@ -5,6 +5,7 @@ import (
 	"dungtl2003/chat-app-message-service/internal/context"
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/services/database"
+	"dungtl2003/chat-app-message-service/internal/services/kafka"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
@@ -338,6 +339,24 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		go func() {
+			err := kafka.WriteMessages(appCtx.KafkaWriterService, []kafka.KMessage[kafka.MessageResourceCreatedEvent]{
+				{
+					Topic: kafka.MESSAGE_RESOURCE_CREATED_TOPIC,
+					Key:   fmt.Sprintf("%d", msg.Id),
+					Value: kafka.MessageResourceCreatedEvent{
+						Message: *msg,
+					},
+				},
+			})
+
+			if err != nil {
+				appCtx.Logger.Errorfln("failed to write message resource created event to kafka: %v", err)
+			} else {
+				appCtx.Logger.Debugfln("message resource created event written to kafka successfully")
+			}
+		}()
 
 		resp.Data = &types.DataOrPage[model.Message]{}
 		resp.Data.Item = msg

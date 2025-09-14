@@ -11,6 +11,7 @@ import (
 	"dungtl2003/chat-app-message-service/internal/services"
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/idgen"
+	"dungtl2003/chat-app-message-service/internal/services/kafka"
 	"fmt"
 	"log"
 	"net/http"
@@ -73,15 +74,27 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		}
 	}
 
+	dlqChan := make(chan kafka.KMessage[kafka.DLQEvent], 100)
+	loggerWrapper.Infofln("Creating Kafka writer service")
+	kafkaWriterService, err := kafka.NewKafkaWriterService(config.KafkaConfig.Brokers, loggerWrapper, context.Background(), dlqChan)
+	if err != nil {
+		return nil, fmt.Errorf("error when creating Kafka writer service: %w", err)
+	}
+	loggerWrapper.Infofln("Kafka writer service created successfully")
+
 	loggerWrapper.Info("Creating application context")
 	appCtx := &ctx.AppContext{
+		DlqChannel: dlqChan,
+
 		IdGeneratorService: idGeneratorService,
 		Validator:          validator,
 		Logger:             loggerWrapper,
 		DatabaseService:    databaseService,
+		KafkaWriterService: kafkaWriterService,
 		Services: []services.Service{
 			idGeneratorService,
 			databaseService,
+			kafkaWriterService,
 		},
 	}
 
@@ -166,6 +179,9 @@ func (s *MessageServer) Close() error {
 			s.AppCtx.Logger.Debugfln("service [%s] closed successfully", service.Name())
 		}
 	}
+
+	s.AppCtx.Logger.Debugfln("Closing channel for dead-letter queue")
+	close(s.AppCtx.DlqChannel)
 
 	if err := s.srv.Shutdown(ctx); err != nil {
 		s.AppCtx.Logger.Errorfln("error when shutting down server: %v", err)

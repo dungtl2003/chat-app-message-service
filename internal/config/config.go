@@ -27,13 +27,18 @@ type MediaConfig struct {
 	URL string
 }
 
+type KafkaConfig struct {
+	Brokers []string
+}
+
 type Config struct {
 	ServerPort        int
 	Env               string
-	LogConfig         *LogConfig
-	IdGeneratorConfig *IdGeneratorConfig
-	DatabaseConfig    *DatabaseConfig
-	MediaConfig       *MediaConfig
+	LogConfig         LogConfig
+	IdGeneratorConfig IdGeneratorConfig
+	DatabaseConfig    DatabaseConfig
+	MediaConfig       MediaConfig
+	KafkaConfig       KafkaConfig
 }
 
 // LoadConfig loads the configuration from env file. It will return Config instance
@@ -64,8 +69,20 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = c.setKafkaConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	return c, nil
+}
+
+func (k *KafkaConfig) String() string {
+	parts := []string{
+		fmt.Sprintf("BROKERS: %s", strings.Join(k.Brokers, ", ")),
+	}
+
+	return fmt.Sprintf("KafkaConfig{%s}", strings.Join(parts, ", "))
 }
 
 func (l *LogConfig) String() string {
@@ -102,13 +119,28 @@ func (c *Config) String() string {
 		fmt.Sprintf("DATABASE_CONFIG: %s", c.DatabaseConfig),
 		fmt.Sprintf("ID_GENERATOR_CONFIG: %s", c.IdGeneratorConfig),
 		fmt.Sprintf("MEDIA_CONFIG: %s", c.MediaConfig),
+		fmt.Sprintf("KAFKA_CONFIG: %s", c.KafkaConfig),
 	}
 
 	return fmt.Sprintf("Config{%s}", strings.Join(parts, ", "))
 }
 
+func (c *Config) setKafkaConfig() error {
+	log.Println("Setting KAFKA_BROKERS")
+	brokersStr, has := os.LookupEnv("KAFKA_BROKERS")
+	if !has {
+		return fmt.Errorf("KAFKA_BROKERS is required")
+	}
+	brokers := strings.Split(brokersStr, ",")
+	if len(brokers) == 0 {
+		return fmt.Errorf("KAFKA_BROKERS must contain at least one broker")
+	}
+
+	c.KafkaConfig.Brokers = brokers
+	return nil
+}
+
 func (c *Config) setLogConfig() error {
-	c.LogConfig = &LogConfig{}
 	logLevel := logging.INFO // Default log level
 	logKind := logging.TEXT  // Default log kind
 
@@ -134,8 +166,6 @@ func (c *Config) setLogConfig() error {
 }
 
 func (c *Config) setMediaConfig() error {
-	c.MediaConfig = &MediaConfig{}
-
 	mediaUrl, has := os.LookupEnv("MEDIA_SERVICE_URL")
 	if !has {
 		return fmt.Errorf("MEDIA_SERVICE_URL not found")
@@ -147,8 +177,6 @@ func (c *Config) setMediaConfig() error {
 }
 
 func (c *Config) setIdGeneratorConfig() error {
-	c.IdGeneratorConfig = &IdGeneratorConfig{}
-
 	addr, has := os.LookupEnv("ID_GENERATOR_ADDR")
 	if !has {
 		return fmt.Errorf("ID_GENERATOR_ADDR not found")
@@ -198,7 +226,6 @@ func (c *Config) setEnv() error {
 }
 
 func (c *Config) setDatabaseConfig() error {
-	c.DatabaseConfig = &DatabaseConfig{}
 	log.Println("Setting DATABASE_CONFIG")
 	dbUrl, has := os.LookupEnv("DATABASE_URL")
 	if !has {

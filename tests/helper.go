@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	KAFKA_GROUP_ID = "chat-app-message-service-test-group"
+)
+
 type SnowflakeConfig struct {
 	Addr    string
 	CertDir string
@@ -31,6 +35,7 @@ type TestHelper struct {
 	IdGeneratorConfig    IdGeneratorConfig
 	DataFileDir          string
 	MessageServiceURL    string
+	BrokerAddr           string
 
 	server *server.MessageServer
 }
@@ -41,6 +46,11 @@ type SetUpOptions struct {
 }
 
 func NewTestHelper() *TestHelper {
+	brokerAddr, bool := os.LookupEnv("BROKER_ADDR")
+	if !bool {
+		log.Fatal("BROKER_ADDR is not set")
+	}
+
 	logger, err := logging.NewLogger(logging.DEBUG, logging.TEXT)
 	if err != nil {
 		log.Fatalf("Error when loading logger: %v", err)
@@ -84,6 +94,7 @@ func NewTestHelper() *TestHelper {
 	}
 
 	h := &TestHelper{
+		BrokerAddr:           brokerAddr,
 		AdminDatabaseService: db,
 		Client:               client,
 		Logger:               loggerWrapper,

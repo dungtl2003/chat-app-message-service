@@ -19,6 +19,7 @@ LOG_KIND=${LOG_KIND:-"TEXT"}
 ID_GENERATOR_ADDR=${ID_GENERATOR_ADDR:-"localhost:9000"} # tls
 ID_GENERATOR_CERT_DIR=${ID_GENERATOR_CERT_DIR:-"$ROOT_DIR/environments/test/message/services/snowflake/ssl/certs"}
 ENVIRONMENT=${ENVIRONMENT:-"test"}
+KAFKA_BROKERS=${KAFKA_BROKERS:-"localhost:29092,localhost:39092,localhost:49092"}
 MEDIA_SERVICE_URL=${MEDIA_SERVICE_URL:-"http://localhost:8300"}
 
 # Test's specific environment variables
@@ -28,6 +29,8 @@ ID_GENERATOR_TLS_ADDR=${ID_GENERATOR_TLS_ADDR:-"localhost:9000"}
 ID_GENERATOR_NON_TLS_ADDR=${ID_GENERATOR_NON_TLS_ADDR:-"localhost:9001"}
 ID_GENERATOR_FAKE_CERT_DIR=${ID_GENERATOR_FAKE_CERT_DIR:-"$ROOT_DIR/environments/test/message/services/snowflake/fake_ssl"}
 DATA_FILE_DIR=${DATA_FILE_DIR:-"$ROOT_DIR/tests/data"}
+# One working broker address is enough for the tests to run
+BROKER_ADDR=${BROKER_ADDR:-"localhost:29092"}
 
 LOG_META="
 $ROOT_DIR/tests/logs/database_service.log=chat-app-db-service;
@@ -69,6 +72,8 @@ function export_envs() {
     export ID_GENERATOR_ADDR
     printf "export ID_GENERATOR_CERT_DIR=%s\n" $ID_GENERATOR_CERT_DIR
     export ID_GENERATOR_CERT_DIR
+    printf "export KAFKA_BROKERS=%s\n" $KAFKA_BROKERS
+    export KAFKA_BROKERS
     printf "export MEDIA_SERVICE_URL=%s\n" $MEDIA_SERVICE_URL
     export MEDIA_SERVICE_URL
 
@@ -84,6 +89,8 @@ function export_envs() {
     export ID_GENERATOR_FAKE_CERT_DIR
     printf "export DATA_FILE_DIR=%s\n" $DATA_FILE_DIR
     export DATA_FILE_DIR    
+    printf "export BROKER_ADDR=%s\n" $BROKER_ADDR
+    export BROKER_ADDR
     printf "export LOG_META=%s\n" "$LOG_META"
     export LOG_META
 }

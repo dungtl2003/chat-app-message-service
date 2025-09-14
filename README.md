@@ -1,6 +1,6 @@
 # Message service
 
-Last updated: 2025-09-03
+Last updated: 2025-09-14
 
 # Table of Contents    
 
@@ -34,6 +34,7 @@ This service is responsible for managing media files, including uploading, proce
 | ID_GENERATOR_CERT_DIR | The directory to the certificate of the id generator service | No | | string | any valid directory |
 | ENVIRONMENT | The environment the service is running in | No | dev | string | dev, prod, test |
 | MEDIA_SERVICE_URL | The URL to the media service | Yes | | string | any valid URL |
+| KAFKA_BROKERS | The addresses of the Kafka brokers | Yes | | string | comma-separated list of broker addresses (e.g. localhost:9092,localhost:9093) |
 
 You can see the full configuration example in `./environments/.env.template` file.
 
