@@ -112,7 +112,12 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 			Path:   "/conversations/:conversation-id/messages",
 			H:      api.GetMessagesByConvID(appCtx),
 		},
-
+		{
+			// get message by ID
+			Method: router.GET,
+			Path:   "/messages/:message-id",
+			H:      api.GetMessageByID(appCtx),
+		},
 		{
 			Method: router.POST,
 			Path:   "/messages",

@@ -300,6 +300,60 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 	return endCursor.Int64(), messages, hasMore, nil
 }
 
+// GetMessageById get a message by its ID. It will return the message and error
+// if occurs. If the message is not found, it will return nil, nil.
+// `ErrDatabaseError` will be returned if database error occurs.
+func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error) {
+	if d.Status() != services.READY {
+		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+		return nil, ErrDatabaseError
+	}
+
+	query := `
+		SELECT 
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
+		    COALESCE(
+				json_agg(
+					json_build_object(
+						'id', a.id,
+						'asset_id', a.asset_id,
+						'deleted_at', a.deleted_at,
+						'message_id', a.message_id,
+						'position', a.position,
+						'type', a.type
+					)
+				) FILTER (WHERE a.id IS NOT NULL), '[]'
+			) AS attachments
+		FROM message.message m
+		LEFT JOIN message.attachment a ON m.id = a.message_id
+		WHERE m.id = $1
+		GROUP BY m.id;
+	`
+	args := []any{messageId}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	var msg model.Message
+	var rawAttachments json.RawMessage
+	messageRow := d.client.QueryRow(query, args...)
+	err := messageRow.Scan(
+		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &msg.ReplyToMessageId,
+		&rawAttachments)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		d.logger.Errorfln("messageRow.Scan(): %v", err)
+		return nil, ErrDatabaseError
+	}
+
+	err = json.Unmarshal(rawAttachments, &msg.Attachments)
+	if err != nil {
+		d.logger.Errorfln("json.Unmarshal(): %v", err)
+		return nil, ErrDatabaseError
+	}
+
+	return &msg, nil
+}
+
 // GetAllMessages get all messages in the database. The function is currently used
 // for testing purposes. It will return messages or error if occurs.
 func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {

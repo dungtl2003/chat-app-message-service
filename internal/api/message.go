@@ -226,6 +226,61 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 	}
 }
 
+// GET /messages/:message-id
+func GetMessageByID(appCtx *context.AppContext) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		resp := types.Response[model.Message]{}
+
+		messageIdStr := c.Param("message-id")
+		appCtx.Logger.Debugfln("query(message_id=%s)", messageIdStr)
+
+		messageId, err := strconv.ParseInt(messageIdStr, 10, 64)
+		if err != nil {
+			appCtx.Logger.Errorfln("error parsing message ID: %v", err)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusBadRequest,
+				Message: "Invalid message ID",
+				Errors: []types.ErrorItem{{
+					Message: "Invalid message ID",
+				}},
+			}
+
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		message, err := appCtx.DatabaseService.GetMessageById(messageId)
+		if err != nil {
+			appCtx.Logger.Errorfln("Database.GetMessageById(): %v", err)
+			resp.Error = &types.ErrorBlock{
+				Message: err.Error(),
+				Errors: []types.ErrorItem{{
+					Message: err.Error(),
+				}},
+			}
+
+			switch err {
+			case database.ErrDatabaseError:
+				resp.Error.Code = http.StatusInternalServerError
+			default:
+				resp.Error.Code = http.StatusInternalServerError
+			}
+
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		resp.Data = &types.DataOrPage[model.Message]{}
+		resp.Data.Item = message
+
+		appCtx.Logger.Debugfln("response: %s", resp)
+		c.JSON(http.StatusOK, resp)
+		c.Abort()
+	}
+}
+
 func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := types.Response[model.Message]{}

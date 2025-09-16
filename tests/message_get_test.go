@@ -93,6 +93,57 @@ func TestGetMessagesShouldWork(t *testing.T) {
 	}
 }
 
+func TestGetMessageByIdShouldWork(t *testing.T) {
+	helper := NewTestHelper()
+	SetUp(helper, &SetUpOptions{
+		DataFile: &database.DataFile{
+			UserFile:         USERS__MESSAGE__GET_FILENAME,
+			ConversationFile: CONVS__MESSAGE__GET_FILENAME,
+			MessageFile:      MSGS__MESSAGE__GET_FILENAME,
+		},
+	})
+	defer TearDown(helper)
+
+	messageId := int64(1001)
+	token := GetInternalAccessToken(2)
+	url := fmt.Sprintf("%s/messages/%d", helper.MessageServiceURL, messageId)
+	header := http.Header{
+		"Content-Type":  {"application/json"},
+		"Authorization": {fmt.Sprintf("Bearer %s", token)},
+	}
+	resp, err := Get(helper.Client, url, header)
+	require.NoError(t, err)
+	require.EqualValues(t, http.StatusOK, resp.StatusCode)
+
+	var respBody types.Response[model.Message]
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	require.Empty(t, respBody.Error)
+	require.NotEmpty(t, respBody.Data)
+	require.Nil(t, respBody.Data.Page)
+	require.NotNil(t, respBody.Data.Item)
+
+	expectedMessages, err := helper.AdminDatabaseService.GetMessageById(messageId)
+	require.NoError(t, err)
+	actualMessage := respBody.Data.Item
+
+	require.EqualValues(t, expectedMessages.Id, actualMessage.Id)
+	require.EqualValues(t, expectedMessages.Content, actualMessage.Content)
+	require.EqualValues(t, expectedMessages.Type, actualMessage.Type)
+	require.EqualValues(t, expectedMessages.SenderId, actualMessage.SenderId)
+	require.EqualValues(t, expectedMessages.ReceiverId, actualMessage.ReceiverId)
+	require.EqualValues(t, expectedMessages.ReplyToMessageId, actualMessage.ReplyToMessageId)
+	require.EqualValues(t, len(expectedMessages.Attachments), len(actualMessage.Attachments))
+	for expAtt, actAtt := range h.Zip(expectedMessages.Attachments, actualMessage.Attachments) {
+		require.EqualValues(t, expAtt.Id, actAtt.Id)
+		require.EqualValues(t, expAtt.AssetId, actAtt.AssetId)
+		require.EqualValues(t, expAtt.MessageId, actAtt.MessageId)
+		require.EqualValues(t, expAtt.Position, actAtt.Position)
+		require.EqualValues(t, expAtt.Type, actAtt.Type)
+	}
+}
+
 func TestGetMessagesWithDifferentLimitsShouldWork(t *testing.T) {
 	helper := NewTestHelper()
 	SetUp(helper, &SetUpOptions{
