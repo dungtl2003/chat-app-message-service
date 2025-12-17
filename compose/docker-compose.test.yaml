@@ -1,42 +1,4 @@
 services:
-  media:
-    container_name: chat-app-media-service
-    image: ilikeblue/chat-app-media-service:dev-latest
-    labels:
-      - 'custom.project=chat'
-      - 'custom.service=media'
-    ports:
-      - "8300:80"
-    environment:
-      - DATABASE_URL=postgresql://media_service:media1234@chat-app-db-service:5432/chat-app?sslmode=disable
-      - PORT=80
-      - LOG_LEVEL=DEBUG
-      - LOG_KIND=TEXT
-      - ID_GENERATOR_ADDR=chat-app-snowflake-tls-service:80
-      - ID_GENERATOR_CERT_DIR=/etc/chat-app/services/snowflake/ssl/certs
-      - CLOUDINARY_URL=https://fake-cloudinary-url.com
-      - ENVIRONMENT=test
-      - KAFKA_BROKERS=broker-1:19092,broker-2:19092,broker-3:19092
-    volumes:
-      - ../environments/test/media/services/snowflake/ssl/certs:/etc/chat-app/services/snowflake/ssl/certs:ro 
-    networks:
-      - chat-app-media-network
-      - chat-app-db-network
-      - chat-app-id-generator-network
-      - chat-app-kafka-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:80/healthcheck | jq -e '.status == \"UP\"' > /dev/null"]
-      retries: 3
-      start_period: 15s
-      start_interval: 3s
-      interval: 30s
-      timeout: 5s
-    depends_on:
-      pgdb:
-        condition: service_healthy 
-      topics-init:
-        condition: service_healthy # it has consumers so it needs to wait for topics to be created
-
   snowflake-tls:
     container_name: chat-app-snowflake-tls-service
     image: ilikeblue/snowflake-uuid:dev-latest
@@ -320,6 +282,3 @@ networks:
   chat-app-kafka-network:
     driver: bridge
     name: chat-app-kafka-network
-  chat-app-media-network:
-    driver: bridge
-    name: chat-app-media-network

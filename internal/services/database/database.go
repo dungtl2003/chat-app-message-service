@@ -37,13 +37,13 @@ func (d *DatabaseService) Name() string {
 }
 
 func (d *DatabaseService) Status() services.ServiceStatus {
-	if d.status != services.STOPPED {
+	if d.status != services.ServiceStopped {
 		// check if the database connection is still alive
 		if err := d.client.Ping(); err != nil {
 			d.logger.Errorfln("[%s] Database connection is not alive: %v", d.Name(), err)
-			d.status = services.ERROR
+			d.status = services.ServiceError
 		} else {
-			d.status = services.READY
+			d.status = services.ServiceReady
 		}
 	}
 
@@ -61,7 +61,7 @@ func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 	d := &DatabaseService{
 		client: client,
 		logger: logger,
-		status: services.READY,
+		status: services.ServiceReady,
 	}
 
 	d.logger.Infofln("[%s] Database connection created", d.Name())
@@ -71,7 +71,7 @@ func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 
 // Close closes the database connection. The function returns an error.
 func (d *DatabaseService) Close() error {
-	if d.Status() == services.STOPPED {
+	if d.Status() == services.ServiceStopped {
 		d.logger.Errorfln("[%s] Database connection is already closed", d.Name())
 		return nil
 	}
@@ -79,10 +79,10 @@ func (d *DatabaseService) Close() error {
 	err := d.client.Close()
 	if err != nil {
 		d.logger.Errorfln("[%s] Failed to close database connection: %v", d.Name(), err)
-		d.status = services.ERROR
+		d.status = services.ServiceError
 	} else {
 		d.logger.Infofln("[%s] Database connection closed", d.Name())
-		d.status = services.STOPPED
+		d.status = services.ServiceStopped
 	}
 
 	return err
@@ -92,9 +92,12 @@ func (d *DatabaseService) Close() error {
 // error if occurs.
 // ErrDatabaseError will be returned if database error occurs.
 func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, error) {
-	if d.Status() != services.READY {
-		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
 		return nil, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
 	}
 
 	tx, err := d.client.Begin()
@@ -205,9 +208,12 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 // and error if occurs.
 // ErrDatabaseError will be returned if database error occurs.
 func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional[int64], limit types.Optional[int64]) (int64, []model.Message, bool, error) {
-	if d.Status() != services.READY {
-		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
 		return 0, nil, false, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
 	}
 
 	args := []any{}
@@ -304,9 +310,12 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 // if occurs. If the message is not found, it will return nil, nil.
 // `ErrDatabaseError` will be returned if database error occurs.
 func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error) {
-	if d.Status() != services.READY {
-		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
 		return nil, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
 	}
 
 	query := `
@@ -357,9 +366,12 @@ func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error
 // GetAllMessages get all messages in the database. The function is currently used
 // for testing purposes. It will return messages or error if occurs.
 func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
-	if d.Status() != services.READY {
-		d.logger.Errorfln("[%s] Database is not ready", d.Name())
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
 		return nil, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
 	}
 
 	messageRows, err := d.client.Query(`
@@ -497,11 +509,11 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 			}
 			for _, participant := range conversation.Participants {
 				query = `INSERT INTO conversation.participant (
-					id, user_id, nickname, conversation_id, role, avatar_id, username, email, first_name, last_name
+					id, user_id, nickname, conversation_id, role
 				) VALUES (
-					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+					$1, $2, $3, $4, $5
 				);`
-				args = []any{participant.Id, participant.UserId, participant.Nickname, conversation.Id, participant.Role, participant.AvatarId, participant.Username, participant.Email, participant.FirstName, participant.LastName}
+				args = []any{participant.Id, participant.UserId, participant.Nickname, conversation.Id, participant.Role}
 				d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
 				_, err = tx.Exec(query, args...)
 				if err != nil {
@@ -513,11 +525,11 @@ func (d *DatabaseService) CreateTemporaryData(dataFile DataFile) error {
 					return fmt.Errorf("group conversation %d is missing group information", conversation.Id.Int64())
 				}
 				query = `INSERT INTO conversation.group_chat (
-					id, name, avatar_id, conversation_id
+					name, avatar_id, conversation_id
 				) VALUES (
-					$1, $2, $3, $4
+					$1, $2, $3
 				);`
-				args = []any{conversation.Group.Id, conversation.Group.Name, conversation.Group.AvatarId, conversation.Id}
+				args = []any{conversation.Group.Name, conversation.Group.AvatarId, conversation.Id}
 				d.logger.Debugfln("[%s] Executing query: %s with args: %v", d.Name(), helper.StripWS(query), args)
 				_, err = tx.Exec(query, args...)
 				if err != nil {

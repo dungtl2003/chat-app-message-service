@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	consumerGroupID                      = "chat-app-message-service-consumer-group"
+	ConsumerGroupID                      = "chat-app-message-service-consumer-group"
 	MESSAGE_RESOURCE_CREATED_TOPIC Topic = "message-resource-created"
 )
 

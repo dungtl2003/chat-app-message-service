@@ -12,8 +12,40 @@ type JsonInt64 struct {
 	int64
 }
 
-func NewJsonInt64(i int64) JsonInt64 {
-	return JsonInt64{i}
+func (j JsonInt64) String() string {
+	return strconv.FormatInt(j.int64, 10)
+}
+
+// Value implements the [driver.Valuer] interface.
+func (j JsonInt64) Value() (driver.Value, error) {
+	return j.int64, nil
+}
+
+func (j JsonInt64) Int64() int64 {
+	return j.int64
+}
+
+// Scan implements the [Scanner] interface.
+func (j *JsonInt64) Scan(value any) error {
+	if value == nil {
+		return fmt.Errorf("jsonInt64: Scan(nil)")
+	}
+
+	switch value := value.(type) {
+	case int64:
+		j.int64 = value
+		return nil
+	default:
+		return fmt.Errorf("jsonInt64: unsupported type: %T", value)
+	}
+}
+
+func (j *JsonInt64) Dereference() JsonInt64 {
+	return NewJsonInt64(j.int64)
+}
+
+func (j *JsonInt64) ToJsonNullInt64() JsonNullInt64 {
+	return NewJsonNullInt64(j.int64)
 }
 
 func (j JsonInt64) MarshalJSON() ([]byte, error) {
@@ -21,6 +53,11 @@ func (j JsonInt64) MarshalJSON() ([]byte, error) {
 }
 
 func (j *JsonInt64) UnmarshalJSON(data []byte) error {
+	// error if data is null
+	if IsNull(data) {
+		return fmt.Errorf("jsonInt64: UnmarshalJSON(null)")
+	}
+
 	// data can be string or int64
 	var i int64 = 0
 	var str string = ""
@@ -44,30 +81,6 @@ func (j *JsonInt64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Scan implements the [Scanner] interface.
-func (j *JsonInt64) Scan(value any) error {
-	if value == nil {
-		return fmt.Errorf("jsonInt64: Scan(nil)")
-	}
-
-	switch value := value.(type) {
-	case int64:
-		j.int64 = value
-		return nil
-	default:
-		return fmt.Errorf("jsonInt64: unsupported type: %T", value)
-	}
-}
-
-// Value implements the [driver.Valuer] interface.
-func (j JsonInt64) Value() (driver.Value, error) {
-	return j.int64, nil
-}
-
-func (j JsonInt64) Int64() int64 {
-	return j.int64
-}
-
-func (j JsonInt64) String() string {
-	return strconv.FormatInt(j.int64, 10)
+func NewJsonInt64(i int64) JsonInt64 {
+	return JsonInt64{i}
 }

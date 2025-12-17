@@ -1,172 +1,162 @@
-#!/bin/bash -e
+#!/bin/bash
 
-# This script is used to generate SSL certificates for the services. By default,
-# the script will generate certificates to all the directories specified in the CERT_DIRS
-# array and the FAKE_CERT_DIRS array. Also, it will load openssl.cnf file from
-# OPENSSL_CONFIG_FILE environment variable.
-#
-# You can choose to generate certificates for all the directories or just for the test
-# environment by selecting the option when running the script. Note that if you choose
-# to generate certificates for all the directories, the script will generate certificates
-# for both the test and the production environment (it will delete the existing certificates
-# in the directories and generate new certificates).
-#
-# This script is recommended to be run for development and testing purposes only. For
-# production, you should use a proper CA to generate the certificates.
+# --- Configuration ---
+set -euo pipefail
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-ROOT_DIR="$SCRIPT_DIR/.."
-OPENSSL_CONFIG_FILE=${OPENSSL_CONFIG_FILE:="$ROOT_DIR/etc/openssl.cnf"}
-CERT_DIRS=(
-    "$ROOT_DIR/environments/dev/snowflake/ssl" 
-    "$ROOT_DIR/environments/dev/message/services/snowflake/ssl" 
+ROOT_DIR="${SCRIPT_DIR}/.."
+OPENSSL_CONFIG_FILE="${OPENSSL_CONFIG_FILE:-"$ROOT_DIR/etc/openssl.cnf"}"
 
-    "$ROOT_DIR/environments/test/snowflake/ssl/certs" 
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Target Directories
+# We explicitly categorize them to allow filtering
+DEV_CERT_DIRS=(
+    "$ROOT_DIR/environments/dev/snowflake/ssl"
+    "$ROOT_DIR/environments/dev/message/services/snowflake/ssl"
+)
+
+TEST_CERT_DIRS=(
+    "$ROOT_DIR/environments/test/snowflake/ssl/certs"
     "$ROOT_DIR/environments/test/message/services/snowflake/ssl/certs"
     "$ROOT_DIR/environments/test/media/services/snowflake/ssl/certs"
 )
+
 FAKE_CERT_DIRS=(
     "$ROOT_DIR/environments/test/message/services/snowflake/fake_ssl/certs"
 )
 
+# --- Functions ---
 
-TEMP_CERT_DIR=$(mktemp -d)
-
-# user can choose: generate for all or just for test environment
-options=("all" "test")
-
-function gen() {
-    rm -f $TEMP_CERT_DIR/* 
-
-    # Create the CA certificate
-    openssl req -x509 \
-      -newkey rsa:4096 \
-      -nodes \
-      -days 3650 \
-      -keyout $TEMP_CERT_DIR/ca_key.pem \
-      -out $TEMP_CERT_DIR/ca_cert.pem \
-      -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=chatapp/CN=chatapp_ca" \
-      -config "$OPENSSL_CONFIG_FILE" \
-      -extensions ca \
-      -sha256
-
-    # Generate a server private key
-    openssl genrsa -out $TEMP_CERT_DIR/server_key.pem 4096
-
-    # Create a Certificate Signing Request (CSR) for the server
-    openssl req -new \
-      -key $TEMP_CERT_DIR/server_key.pem \
-      -out $TEMP_CERT_DIR/server_csr.pem \
-      -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=mychatapp/CN=mychatapp.local" \
-      -config "$OPENSSL_CONFIG_FILE" \
-      -reqexts server
-
-    # Sign the server CSR with the CA key to generate the server certificate
-    openssl x509 -req \
-      -in $TEMP_CERT_DIR/server_csr.pem \
-      -CAkey $TEMP_CERT_DIR/ca_key.pem \
-      -CA $TEMP_CERT_DIR/ca_cert.pem \
-      -days 3650 \
-      -set_serial 1000 \
-      -out $TEMP_CERT_DIR/server_cert.pem \
-      -extfile "$OPENSSL_CONFIG_FILE" \
-      -extensions server \
-      -sha256
-
-    # Verify the server certificate
-    openssl verify -verbose -CAfile $TEMP_CERT_DIR/ca_cert.pem $TEMP_CERT_DIR/server_cert.pem
-
-    # Generate a client private key
-    openssl genrsa -out $TEMP_CERT_DIR/client_key.pem 4096
-
-    # Create a Certificate Signing Request (CSR) for the Client
-    openssl req -new \
-      -key $TEMP_CERT_DIR/client_key.pem \
-      -out $TEMP_CERT_DIR/client_csr.pem \
-      -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=mychatapp/CN=mychatapp.local" \
-      -config "$OPENSSL_CONFIG_FILE" \
-      -reqexts client
-
-    # Sign the Client CSR with the Client CA Key to Generate the Client Certificate
-    openssl x509 -req \
-      -in $TEMP_CERT_DIR/client_csr.pem \
-      -CAkey $TEMP_CERT_DIR/ca_key.pem \
-      -CA $TEMP_CERT_DIR/ca_cert.pem \
-      -days 3650 \
-      -set_serial 1000 \
-      -out $TEMP_CERT_DIR/client_cert.pem \
-      -extfile "$OPENSSL_CONFIG_FILE" \
-      -extensions client \
-      -sha256
-
-    # Verify the Client Certificate
-    openssl verify -verbose -CAfile $TEMP_CERT_DIR/ca_cert.pem $TEMP_CERT_DIR/client_cert.pem
-
-    rm -f $TEMP_CERT_DIR/server_csr.pem $TEMP_CERT_DIR/client_csr.pem
+# usage: print_usage
+print_usage() {
+    echo "Usage: $0 [env]"
+    echo "  env: 'all', 'dev', or 'test' (default: test)"
+    echo "  Example: $0 dev"
 }
 
-function copy_certs() {
-    dirs=("$@")
-    for dir in "${dirs[@]}"; do
-        printf "Copying certificates to: $dir\n"
-        cp $TEMP_CERT_DIR/*.pem $dir
-    done
+# cleanup: Automatically called on exit
+cleanup() {
+    if [ -d "${TEMP_CERT_DIR:-}" ]; then
+        rm -rf "$TEMP_CERT_DIR"
+    fi
+}
+trap cleanup EXIT
+
+log() {
+    echo -e "${BLUE}[GEN]${NC} $1"
 }
 
-function init_dirs_if_not_exist() {
-    dirs=("$@")
-    for dir in "${dirs[@]}"; do
-        printf "Checking directory: $dir\n"
-        if [[ ! -d $dir ]]; then
-            printf "Directory missing. Creating directory: $dir\n"
-            mkdir -p $dir
+check_prereqs() {
+    if [ ! -f "$OPENSSL_CONFIG_FILE" ]; then
+        echo -e "${RED}Error: OpenSSL config file not found at: $OPENSSL_CONFIG_FILE${NC}"
+        exit 1
+    fi
+    if ! command -v openssl &> /dev/null; then
+        echo -e "${RED}Error: openssl is not installed.${NC}"
+        exit 1
+    fi
+}
+
+generate_cert_set() {
+    local target_dirs=("${@}")
+
+    # Empty temp dir for new run
+    rm -f "$TEMP_CERT_DIR"/*
+
+    log "Creating CA Certificate..."
+    openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+        -keyout "$TEMP_CERT_DIR/ca_key.pem" \
+        -out "$TEMP_CERT_DIR/ca_cert.pem" \
+        -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=chatapp/CN=chatapp_ca" \
+        -config "$OPENSSL_CONFIG_FILE" \
+        -extensions ca -sha256 > /dev/null 2>&1
+
+    log "Creating Server Certificate..."
+    openssl genrsa -out "$TEMP_CERT_DIR/server_key.pem" 4096 > /dev/null 2>&1
+    openssl req -new -key "$TEMP_CERT_DIR/server_key.pem" \
+        -out "$TEMP_CERT_DIR/server_csr.pem" \
+        -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=mychatapp/CN=mychatapp.local" \
+        -config "$OPENSSL_CONFIG_FILE" -reqexts server > /dev/null 2>&1
+
+    openssl x509 -req -in "$TEMP_CERT_DIR/server_csr.pem" \
+        -CAkey "$TEMP_CERT_DIR/ca_key.pem" -CA "$TEMP_CERT_DIR/ca_cert.pem" \
+        -days 3650 -set_serial 1000 -out "$TEMP_CERT_DIR/server_cert.pem" \
+        -extfile "$OPENSSL_CONFIG_FILE" -extensions server -sha256 > /dev/null 2>&1
+
+    log "Creating Client Certificate..."
+    openssl genrsa -out "$TEMP_CERT_DIR/client_key.pem" 4096 > /dev/null 2>&1
+    openssl req -new -key "$TEMP_CERT_DIR/client_key.pem" \
+        -out "$TEMP_CERT_DIR/client_csr.pem" \
+        -subj "/C=VN/ST=Ha Noi/L=Ha Noi/O=mychatapp/CN=mychatapp.local" \
+        -config "$OPENSSL_CONFIG_FILE" -reqexts client > /dev/null 2>&1
+
+    openssl x509 -req -in "$TEMP_CERT_DIR/client_csr.pem" \
+        -CAkey "$TEMP_CERT_DIR/ca_key.pem" -CA "$TEMP_CERT_DIR/ca_cert.pem" \
+        -days 3650 -set_serial 1000 -out "$TEMP_CERT_DIR/client_cert.pem" \
+        -extfile "$OPENSSL_CONFIG_FILE" -extensions client -sha256 > /dev/null 2>&1
+
+    # Cleanup intermediate CSRs
+    rm -f "$TEMP_CERT_DIR/"*_csr.pem
+
+    # Distribution
+    for dir in "${target_dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
         fi
+        echo -e "  -> Installing to: ${YELLOW}$dir${NC}"
+        cp "$TEMP_CERT_DIR"/*.pem "$dir/"
     done
 }
 
-function main() {
-    cert_dirs=("${CERT_DIRS[@]}")
-    fake_cert_dirs=("${FAKE_CERT_DIRS[@]}")
+# --- Main Execution ---
 
-    init_dirs_if_not_exist "${cert_dirs[@]}" "${fake_cert_dirs[@]}"
+main() {
+    TEMP_CERT_DIR=$(mktemp -d)
+    check_prereqs
 
-    printf "Generating certificates...\n"
-    gen
-    copy_certs "${cert_dirs[@]}"
+    TARGET_ENV="${1:-test}" # Default to test
 
-    printf "Generating fake certificates...\n"
-    gen
-    copy_certs "${fake_cert_dirs[@]}"
+    # Select directories based on input
+    REAL_DIRS=()
+    FAKE_DIRS=()
 
-    # printf "Choose the environment to generate certificates: \n"
-    # cert_dirs=()
-    # fake_cert_dirs=()
-    # PS3="Enter your choice: "
-    # select opt in "${options[@]}"; do
-    #     case $opt in
-    #         "all")
-    #             cert_dirs=("${CERT_DIRS[@]}" "${TEST_CERT_DIRS[@]}")
-    #             fake_cert_dirs=("${TEST_FAKE_CERT_DIRS[@]}")
-    #             break
-    #             ;;
-    #         "test")
-    #             cert_dirs=("${TEST_CERT_DIRS[@]}")
-    #             fake_cert_dirs=("${TEST_FAKE_CERT_DIRS[@]}")
-    #             break
-    #             ;;
-    #         *) echo "Invalid option $REPLY";;
-    #     esac
-    # done
-    #
-    # init_dirs_if_not_exist "${cert_dirs[@]}" "${fake_cert_dirs[@]}"
-    #
-    # printf "Generating certificates...\n"
-    # gen
-    # copy_certs "${cert_dirs[@]}"
-    #
-    # printf "Generating fake certificates...\n"
-    # gen
-    # copy_certs "${fake_cert_dirs[@]}"
+    case "$TARGET_ENV" in
+        all)
+            REAL_DIRS=("${DEV_CERT_DIRS[@]}" "${TEST_CERT_DIRS[@]}")
+            FAKE_DIRS=("${FAKE_CERT_DIRS[@]}")
+            ;;
+        dev)
+            REAL_DIRS=("${DEV_CERT_DIRS[@]}")
+            ;;
+        test)
+            REAL_DIRS=("${TEST_CERT_DIRS[@]}")
+            FAKE_DIRS=("${FAKE_CERT_DIRS[@]}")
+            ;;
+        *)
+            print_usage
+            exit 1
+            ;;
+    esac
+
+    if [ ${#REAL_DIRS[@]} -gt 0 ]; then
+        echo -e "${GREEN}=== Generating Valid Certificates for '$TARGET_ENV' ===${NC}"
+        generate_cert_set "${REAL_DIRS[@]}"
+    fi
+
+    if [ ${#FAKE_DIRS[@]} -gt 0 ]; then
+        echo -e "\n${GREEN}=== Generating Fake Certificates (Separate CA) ===${NC}"
+        # We run this again to ensure the "Fake" certs have a different CA
+        # than the "Valid" ones, ensuring validation tests fail as expected.
+        generate_cert_set "${FAKE_DIRS[@]}"
+    fi
+
+    echo -e "\n${GREEN}Success! Certificates generated.${NC}"
 }
 
-main
+main "$@"

@@ -10,14 +10,16 @@ const MICRO_LAYOUT = "2006-01-02T15:04:05.000000"
 
 type ErrorItem struct {
 	Message string `json:"message" validate:"omitempty"`
-	Reason  string `json:"reason" validate:"omitempty"`
+	Reason  string `json:"reason" validate:"omitempty"` // e.g. INVALID_DEVICE, EMAIL_EXISTS, etc
 	Domain  string `json:"domain" validate:"omitempty"`
 }
 
 type ErrorBlock struct {
-	Code    int         `json:"code" validate:"omitempty,numeric"`
-	Message string      `json:"message" validate:"omitempty"`
-	Errors  []ErrorItem `json:"errors" validate:"omitempty"`
+	Code    int    `json:"code" validate:"omitempty,numeric"`
+	Message string `json:"message" validate:"omitempty"`
+	// this is the same as Reason in ErrorItem, but for primary error for client to switch on
+	Status string      `json:"status" validate:"omitempty"` // e.g. "INVALID_ARGUMENT"
+	Errors []ErrorItem `json:"errors" validate:"omitempty"`
 }
 
 // Optional paging & collection metadata that can appear on list responses
@@ -80,7 +82,7 @@ func (r Response[T]) String() string {
 	b, err := json.Marshal(r)
 	if err != nil {
 		// Fallback: don’t panic in Stringer
-		return fmt.Sprintf("JsonResponseBody{error: %v}", err)
+		return fmt.Sprintf("Response{error: %v}", err)
 	}
 	return string(b)
 }
@@ -135,4 +137,9 @@ func (d *DataOrPage[T]) UnmarshalJSON(b []byte) error {
 	}
 	d.Item, d.Page = &v, nil
 	return nil
+}
+
+// IsNull returns true if the given JSON data represents a null value,
+func IsNull(data []byte) bool {
+	return string(data) == "null" || len(data) == 0 || string(data) == `""`
 }

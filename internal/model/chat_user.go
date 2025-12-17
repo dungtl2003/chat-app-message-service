@@ -2,15 +2,26 @@ package model
 
 import "dungtl2003/chat-app-message-service/internal/types"
 
-type Gender string
+type UserGender string
 type UserRole string
 
 const (
-	MALE   Gender = "MALE"
-	FEMALE Gender = "FEMALE"
+	UserGenderMale   = "MALE"
+	UserGenderFemale = "FEMALE"
 
-	ADMIN UserRole = "ADMIN"
-	USER  UserRole = "USER"
+	UserRoleAdmin = "ADMIN"
+	UserRoleUser  = "USER"
+)
+
+var (
+	AllowedUserGenders = map[UserGender]bool{
+		UserGenderMale:   true,
+		UserGenderFemale: true,
+	}
+	AllowedUserRoles = map[UserRole]bool{
+		UserRoleAdmin: true,
+		UserRoleUser:  true,
+	}
 )
 
 type ChatUser struct {
@@ -26,8 +37,15 @@ type ChatUser struct {
 	PhoneNumber    types.JsonNullString `json:"phone_number"`
 	Privacy        types.JsonNullString `json:"privacy"`
 	AvatarId       types.JsonNullInt64  `json:"avatar_id"`
-	SessionVersion types.JsonInt64      `json:"session_version"`
 	CreatedAt      types.JsonTime       `json:"created_at"`
 	UpdatedAt      types.JsonTime       `json:"updated_at"`
 	DeletedAt      types.JsonNullTime   `json:"deleted_at"`
+	SessionVersion types.JsonInt64      `json:"session_version"`
+	Version        types.JsonInt64      `json:"version"`
+
+	// generated field
+	FullName string `json:"full_name"`
+
+	Sessions  []Session            `json:"sessions"`
+	AvatarURL types.JsonNullString `json:"avatar_url"`
 }

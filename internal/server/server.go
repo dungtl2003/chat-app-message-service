@@ -4,7 +4,6 @@ import (
 	"context"
 	"dungtl2003/chat-app-message-service/internal/api"
 	"dungtl2003/chat-app-message-service/internal/config"
-	ctx "dungtl2003/chat-app-message-service/internal/context"
 	"dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/logging"
 	"dungtl2003/chat-app-message-service/internal/router"
@@ -12,11 +11,13 @@ import (
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/idgen"
 	"dungtl2003/chat-app-message-service/internal/services/kafka"
+	"dungtl2003/chat-app-message-service/internal/workers"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -27,7 +28,18 @@ type MessageServerOptions struct {
 
 type MessageServer struct {
 	srv    *http.Server
-	AppCtx *ctx.AppContext
+	logger *logging.LoggerWrapper
+
+	// Lifecycle management
+	services []services.Service      // Things that need Close()
+	workers  []func(context.Context) // Background tasks (Kafka consumers, etc)
+
+	// Internal lifecycle management
+	shutdownOnce sync.Once
+	ctx          context.Context
+	cancel       context.CancelFunc // To stop background workers
+	wg           sync.WaitGroup     // To wait for background workers
+
 }
 
 // New creates a new MessageServer instance. The function will load the
@@ -35,6 +47,15 @@ type MessageServer struct {
 // server. This function will return an error if there is an error when loading
 // the configuration
 func New(opts *MessageServerOptions) (*MessageServer, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s := &MessageServer{
+		services: make([]services.Service, 0),
+		workers:  make([]func(context.Context), 0),
+		cancel:   cancel,
+		ctx:      ctx,
+	}
+
 	log.Println("Loading configuration")
 	config, err := config.LoadConfig()
 	if err != nil {
@@ -47,8 +68,8 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		log.Fatalf("failed to create logger, error: %v", err)
 	}
 	loggerWrapper := logging.NewLoggerWrapper(logger)
-
 	loggerWrapper.Info("switching to custom logger")
+	s.logger = loggerWrapper
 
 	loggerWrapper.Info("Creating validator")
 	validator := helper.NewValidator()
@@ -75,53 +96,75 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 	}
 
 	dlqChan := make(chan kafka.KMessage[kafka.DLQEvent], 100)
-	loggerWrapper.Infofln("Creating Kafka writer service")
-	kafkaWriterService, err := kafka.NewKafkaWriterService(config.KafkaConfig.Brokers, loggerWrapper, context.Background(), dlqChan)
+	msgChan := make(chan kafka.KMessage[kafka.MessageResourceCreatedEvent], 100)
+
+	loggerWrapper.Infofln("Creating Kafka producer service")
+	kafkaProducerService, err := kafka.NewKafkaProducer(
+		config.KafkaConfig.Brokers,
+		loggerWrapper,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error when creating Kafka writer service: %w", err)
 	}
-	loggerWrapper.Infofln("Kafka writer service created successfully")
+
+	loggerWrapper.Infofln("Setting up background workers")
+	s.workers = append(s.workers, func(ctx context.Context) {
+		forwarder := &workers.Forwarder[kafka.DLQEvent]{
+			Producer: kafkaProducerService,
+			Source:   dlqChan,
+			Logger:   loggerWrapper,
+		}
+		forwarder.Start(ctx)
+	})
+	s.workers = append(s.workers, func(ctx context.Context) {
+		forwarder := &workers.Forwarder[kafka.MessageResourceCreatedEvent]{
+			Producer: kafkaProducerService,
+			Source:   msgChan,
+			Logger:   loggerWrapper,
+		}
+		forwarder.Start(ctx)
+	})
 
 	loggerWrapper.Info("Creating application context")
-	appCtx := &ctx.AppContext{
-		DlqChannel: dlqChan,
-
+	handlerDeps := &api.HandlerDeps{
 		IdGeneratorService: idGeneratorService,
 		Validator:          validator,
 		Logger:             loggerWrapper,
 		DatabaseService:    databaseService,
-		KafkaWriterService: kafkaWriterService,
-		Services: []services.Service{
-			idGeneratorService,
-			databaseService,
-			kafkaWriterService,
-		},
+		KafkaProducer:      kafkaProducerService,
 	}
+
+	services := []services.Service{
+		idGeneratorService,
+		databaseService,
+		kafkaProducerService,
+	}
+	s.services = services
 
 	loggerWrapper.Info("Creating HTTP router")
 	publicHandlers := []router.Handler{
 		{
 			Method: router.GET,
 			Path:   "/healthcheck",
-			H:      api.HealthCheck(appCtx),
+			H:      api.HealthCheck(handlerDeps),
 		},
 	}
 	privateHandlers := []router.Handler{
 		{
 			Method: router.GET,
 			Path:   "/conversations/:conversation-id/messages",
-			H:      api.GetMessagesByConvID(appCtx),
+			H:      api.GetMessagesByConvID(handlerDeps),
 		},
 		{
 			// get message by ID
 			Method: router.GET,
 			Path:   "/messages/:message-id",
-			H:      api.GetMessageByID(appCtx),
+			H:      api.GetMessageByID(handlerDeps),
 		},
 		{
 			Method: router.POST,
 			Path:   "/messages",
-			H:      api.CreateMessage(appCtx),
+			H:      api.CreateMessage(handlerDeps),
 		},
 	}
 	// Create a new router
@@ -135,65 +178,87 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		Addr:    fmt.Sprintf("0.0.0.0:%d", config.ServerPort),
 		Handler: router,
 	}
+	s.srv = srv
 
-	return &MessageServer{
-		srv:    srv,
-		AppCtx: appCtx,
-	}, nil
+	return s, nil
 }
 
-// Run starts the server. The function will start the server and listen for signals
-// to shut down the server. The function will exit the program if there is an error
-// when starting the server. Call Close() to shut down the server.
+// Run starts the server. It listens for incoming HTTP requests and handles
+// them according to the defined routes. Remember to call Close() to shut down
+// the server gracefully.
 func (s *MessageServer) Run() error {
-	errSignal := make(chan error, 1)
-	quit := make(chan os.Signal, 1)
+	// Start background workers
+	for _, w := range s.workers {
+		worker := w
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			worker(s.ctx)
+		}()
+	}
 
+	// Start HTTP server
 	go func() {
+		s.logger.Infofln("HTTP server listening on %s", s.srv.Addr)
 		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.AppCtx.Logger.Error("error when starting server", "error", err)
-			errSignal <- fmt.Errorf("error when starting server: %w", err)
+			s.logger.Errorfln("HTTP server error: %v", err)
+			s.cancel() // stop workers if server fails
 		}
 	}()
+
+	// Wait for OS signal
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	select {
-	case err := <-errSignal:
-		return err
-	case <-quit:
-		s.AppCtx.Logger.Info("received signal to shut down server")
-		return s.Close()
-	}
+	<-quit
+	s.logger.Info("Shutdown signal received")
+
+	return s.Close()
 }
 
-// Close shuts down the server. The function will close the database connection and
-// shut down the server. The function will exit the program with status code 0 if
-// the server is shut down successfully. The function will exit the program with
-// status code 1 if there is an error when shutting down the server.
+// Close gracefully shuts down the HTTP server and releases all resources.
 func (s *MessageServer) Close() error {
-	s.AppCtx.Logger.Info("shutting down server")
+	var finalErr error
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Ensure we only close once
+	s.shutdownOnce.Do(func() {
+		s.logger.Info("Starting graceful shutdown sequence...")
 
-	for _, service := range s.AppCtx.Services {
-		if err := service.Close(); err != nil {
-			s.AppCtx.Logger.Errorfln("error when closing service [%s]: %v", service.Name(), err)
-			return err
-		} else {
-			s.AppCtx.Logger.Debugfln("service [%s] closed successfully", service.Name())
+		// Stop Background Workers
+		s.logger.Debug("Stopping background workers...")
+		s.cancel()  // Cancel the context passed to workers
+		s.wg.Wait() // Wait for them to finish their current task
+
+		// Shutdown HTTP Server
+		s.logger.Debug("Shutting down HTTP server...")
+
+		// Create a timeout context specifically for the shutdown procedure
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := s.srv.Shutdown(shutdownCtx); err != nil {
+			s.logger.Errorfln("HTTP shutdown error: %v", err)
+			// We don't return immediately; we still want to close DB/Kafka
+			finalErr = err
 		}
-	}
 
-	s.AppCtx.Logger.Debugfln("Closing channel for dead-letter queue")
-	close(s.AppCtx.DlqChannel)
+		// Close External Resources (DB, Kafka, etc.)
+		s.logger.Debug("Closing external services...")
+		for _, service := range s.services {
+			if err := service.Close(); err != nil {
+				s.logger.Errorfln("Error closing service [%s]: %v", service.Name(), err)
+				if finalErr == nil {
+					finalErr = err
+				}
+			} else {
+				s.logger.Debugfln("Service [%s] closed", service.Name())
+			}
+		}
 
-	if err := s.srv.Shutdown(ctx); err != nil {
-		s.AppCtx.Logger.Errorfln("error when shutting down server: %v", err)
-		return err
-	} else {
-		s.AppCtx.Logger.Infofln("server shut down")
-	}
+		// Close channels if strictly necessary (usually not needed if writers are stopped)
 
-	return nil
+		s.logger.Info("Server shutdown complete.")
+	})
+
+	return finalErr
 }

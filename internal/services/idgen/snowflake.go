@@ -96,14 +96,14 @@ func NewSnowflakeService(serverAddr string, opts *SnowflakeServiceOptions) (*Sno
 
 	snowflakeService.client = pb.NewIdGeneratorClient(conn)
 
-	snowflakeService.status = services.READY
+	snowflakeService.status = services.ServiceReady
 	snowflakeService.logger.Infofln("[%s] Running", snowflakeService.Name())
 	return snowflakeService, nil
 }
 
 // Close closes the connection to the ID generator service.
 func (s *SnowflakeService) Close() error {
-	if s.status == services.STOPPED {
+	if s.status == services.ServiceStopped {
 		s.logger.Errorfln("[%s] Already stopped", s.Name())
 		return nil
 	}
@@ -112,49 +112,49 @@ func (s *SnowflakeService) Close() error {
 	err := s.conn.Close()
 	if err != nil {
 		s.logger.Errorfln("[%s] Failed to close connection, error: %v", s.Name(), err)
-		s.status = services.ERROR
+		s.status = services.ServiceError
 	}
 
 	s.logger.Infofln("[%s] Stopped", s.Name())
-	s.status = services.STOPPED
+	s.status = services.ServiceStopped
 
 	return err
 }
 
 // GenerateId generates a new ID.
 func (s *SnowflakeService) GenerateId(ctx context.Context) (int64, error) {
-	if s.status == services.STOPPED {
+	if s.status == services.ServiceStopped {
 		return 0, fmt.Errorf("service is stopped")
 	}
-	if s.status != services.READY {
+	if s.status != services.ServiceReady {
 		s.logger.Warnfln("[%s] Service is not ready", s.Name())
 	}
 
 	s.logger.Debugfln("[%s] Generating ID", s.Name())
 	resp, err := s.client.GenerateId(ctx, &pb.GenerateIdRequest{})
 	if err != nil {
-		s.status = services.ERROR
+		s.status = services.ServiceError
 		s.logger.Errorfln("[%s] Failed to generate ID, error: %v", s.Name(), err)
 		return 0, err
 	}
 
-	s.status = services.READY
+	s.status = services.ServiceReady
 	s.logger.Debugfln("[%s] Generated ID: %d", s.Name(), resp.Id)
 	return resp.Id, nil
 }
 
 func (s *SnowflakeService) Status() services.ServiceStatus {
-	if s.status != services.STOPPED {
+	if s.status != services.ServiceStopped {
 		ctx, cancel := context.WithTimeout(context.Background(), s.healthCheckTimeout)
 		defer cancel()
 
-		s.status = services.READY   // GenerateId() needs service to be READY to proceed
-		_, err := s.GenerateId(ctx) // Check if the service is still ready by trying to generate an ID
+		s.status = services.ServiceReady // GenerateId() needs service to be READY to proceed
+		_, err := s.GenerateId(ctx)      // Check if the service is still ready by trying to generate an ID
 		if err != nil {
-			s.status = services.ERROR
+			s.status = services.ServiceError
 			s.logger.Errorfln("[%s] Service is not ready, error: %v", s.Name(), err)
 		} else {
-			s.status = services.READY
+			s.status = services.ServiceReady
 		}
 	}
 	return s.status

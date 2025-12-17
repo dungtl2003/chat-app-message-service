@@ -22,18 +22,19 @@ PROTO_OUT_DIRS = ./internal/services/idgen/proto
 .PHONY: test 
 test: export TEST_OUT = $(TEST_LOGS_DIR)/results
 test: build certs
-	@echo "Running tests"
-# ifdef FORCE
-# 	go clean -testcache
-# endif
-	@rm -rf $(TEST_LOGS_DIR)
+	@echo "Running tests..."
+	@mkdir -p $(TEST_LOGS_DIR)
 	@go clean -testcache
+	
 ifdef JSON
-	TEST_OUT=$(TEST_OUT) ./scripts/test_local.sh go run ./cmd/test/run_tests.go -json
-	./scripts/read_test_stats.sh $(TEST_OUT)
+    # We pass the rest of the args (like run=TestX) to the script
+	TEST_OUT=$(TEST_OUT) ./scripts/test_local.sh go run ./cmd/test/run_tests.go -json -- $(ARGS)
+	./scripts/test_summarize.sh $(TEST_OUT)
 else
-	./scripts/test_local.sh go run ./cmd/test/run_tests.go
+	./scripts/test_local.sh go run ./cmd/test/run_tests.go -- $(ARGS)
 endif
+
+	@docker volume prune -f || true
 
 # use this command to run service without building to container yet
 .PHONY: run_with_services

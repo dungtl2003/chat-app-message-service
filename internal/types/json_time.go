@@ -12,6 +12,10 @@ type JsonTime struct {
 	time.Time
 }
 
+func (j JsonTime) String() string {
+	return j.Time.Format(MICRO_LAYOUT)
+}
+
 func NewJsonTime(t time.Time) JsonTime {
 	return JsonTime{t}
 }
@@ -25,13 +29,16 @@ func NewJsonTimeStrUnsafe(s string) JsonTime {
 	return JsonTime{t}
 }
 
+func (j *JsonTime) Dereference() JsonTime {
+	if j == nil {
+		return JsonTime{}
+	}
+	return *j
+}
+
 // Value implements the [driver.Valuer] interface.
 func (j JsonTime) Value() (driver.Value, error) {
 	return j.Time, nil
-}
-
-func (j JsonTime) String() string {
-	return j.Time.Format(MICRO_LAYOUT)
 }
 
 // Scan implements the [Scanner] interface.
@@ -66,9 +73,8 @@ func (j JsonTime) MarshalJSON() ([]byte, error) {
 }
 
 func (j *JsonTime) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		j.Time = time.Time{}
-		return nil // or return an error if "null" is invalid for you
+	if IsNull(data) {
+		return fmt.Errorf("jsonTime: UnmarshalJSON(null)")
 	}
 
 	var s string

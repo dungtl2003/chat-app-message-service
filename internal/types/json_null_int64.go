@@ -12,6 +12,13 @@ type JsonNullInt64 struct {
 	sql.NullInt64
 }
 
+func (j JsonNullInt64) String() string {
+	if j.Valid {
+		return strconv.FormatInt(j.Int64, 10)
+	}
+	return "NULL"
+}
+
 func (j JsonNullInt64) MarshalJSON() ([]byte, error) {
 	if j.Valid {
 		return json.Marshal(strconv.FormatInt(j.Int64, 10))
@@ -21,7 +28,7 @@ func (j JsonNullInt64) MarshalJSON() ([]byte, error) {
 }
 
 func (j *JsonNullInt64) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
+	if IsNull(data) {
 		j.Valid = false
 		return nil
 	}
@@ -49,6 +56,13 @@ func (j *JsonNullInt64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (j JsonNullInt64) ToJsonInt64() JsonInt64 {
+	if j.Valid {
+		return NewJsonInt64(j.Int64)
+	}
+	return NewJsonInt64(0)
+}
+
 // Scan implements the [Scanner] interface.
 func (j *JsonNullInt64) Scan(value any) error {
 	if value == nil {
@@ -74,10 +88,6 @@ func (j JsonNullInt64) Value() (driver.Value, error) {
 	}
 
 	return j.Int64, nil
-}
-
-func (j JsonNullInt64) String() string {
-	return fmt.Sprintf("JsonNullInt64{Int64: %d, Valid: %t}", j.Int64, j.Valid)
 }
 
 func NewJsonNullInt64(i int64) JsonNullInt64 {

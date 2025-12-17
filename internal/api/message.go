@@ -2,10 +2,8 @@ package api
 
 import (
 	ctx "context"
-	"dungtl2003/chat-app-message-service/internal/context"
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/services/database"
-	"dungtl2003/chat-app-message-service/internal/services/kafka"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
@@ -48,7 +46,7 @@ func (m MessagePostRequestBody) String() string {
 	return string(b)
 }
 
-func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
+func GetMessagesByConvID(handlerDeps *HandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := types.Response[model.Message]{}
 
@@ -57,11 +55,11 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 		limitStr := c.Query("limit")
 		delayStr := c.Query("delay")
 
-		appCtx.Logger.Debugfln("query(conversation_id=%s, after=%s, limit=%s)", conversationIdStr, afterStr, limitStr)
+		handlerDeps.Logger.Debugfln("query(conversation_id=%s, after=%s, limit=%s)", conversationIdStr, afterStr, limitStr)
 
 		conversationId, err := strconv.ParseInt(conversationIdStr, 10, 64)
 		if err != nil {
-			appCtx.Logger.Errorfln("error parsing conversation ID: %v", err)
+			handlerDeps.Logger.Errorfln("error parsing conversation ID: %v", err)
 			resp.Error = &types.ErrorBlock{
 				Code:    http.StatusBadRequest,
 				Message: "Invalid conversation ID",
@@ -79,7 +77,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 		if afterStr != "" {
 			after, err := strconv.ParseInt(afterStr, 10, 64)
 			if err != nil {
-				appCtx.Logger.Errorfln("error parsing after query: %v", err)
+				handlerDeps.Logger.Errorfln("error parsing after query: %v", err)
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "Invalid after query",
@@ -94,7 +92,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 			}
 
 			if after < 0 {
-				appCtx.Logger.Error("after query cannot be less than 0")
+				handlerDeps.Logger.Error("after query cannot be less than 0")
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "After query cannot be less than 0",
@@ -115,7 +113,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 		if limitStr != "" {
 			limit, err := strconv.ParseInt(limitStr, 10, 64)
 			if err != nil {
-				appCtx.Logger.Errorfln("error parsing limit query: %v", err)
+				handlerDeps.Logger.Errorfln("error parsing limit query: %v", err)
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "Invalid limit query",
@@ -130,7 +128,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 			}
 
 			if limit < 0 {
-				appCtx.Logger.Error("limit query cannot be less than 0")
+				handlerDeps.Logger.Error("limit query cannot be less than 0")
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "Limit query cannot be less than 0",
@@ -151,7 +149,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 		if delayStr != "" {
 			delay, err := strconv.ParseInt(delayStr, 10, 64)
 			if err != nil {
-				appCtx.Logger.Errorfln("error parsing delay query: %v", err)
+				handlerDeps.Logger.Errorfln("error parsing delay query: %v", err)
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "Invalid delay query",
@@ -165,7 +163,7 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 				return
 			}
 			if delay < 0 {
-				appCtx.Logger.Errorfln("delay query cannot be less than 0")
+				handlerDeps.Logger.Errorfln("delay query cannot be less than 0")
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusBadRequest,
 					Message: "Delay query cannot be less than 0",
@@ -181,14 +179,14 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 			optionalDelay.SetValue(delay)
 		}
 		if optionalDelay.Valid {
-			appCtx.Logger.Debugfln("Delaying response for %d ms", optionalDelay.Value)
+			handlerDeps.Logger.Debugfln("Delaying response for %d ms", optionalDelay.Value)
 			// Simulate delay
 			time.Sleep(time.Duration(optionalDelay.Value) * time.Millisecond)
 		}
 
-		cursor, messages, hasMore, err := appCtx.DatabaseService.GetMessages(conversationId, *optionalAfter, *optionalLimit)
+		cursor, messages, hasMore, err := handlerDeps.DatabaseService.GetMessages(conversationId, *optionalAfter, *optionalLimit)
 		if err != nil {
-			appCtx.Logger.Errorfln("Database.GetMessages(): %v", err)
+			handlerDeps.Logger.Errorfln("Database.GetMessages(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Message: err.Error(),
 				Errors: []types.ErrorItem{{
@@ -220,23 +218,23 @@ func GetMessagesByConvID(appCtx *context.AppContext) gin.HandlerFunc {
 			resp.Data.Page.ItemsPerPage = types.NewJsonNullInt64(optionalLimit.Value)
 		}
 
-		appCtx.Logger.Debugfln("response: %s", resp)
+		handlerDeps.Logger.Debugfln("response: %s", resp)
 		c.JSON(http.StatusOK, resp)
 		c.Abort()
 	}
 }
 
 // GET /messages/:message-id
-func GetMessageByID(appCtx *context.AppContext) gin.HandlerFunc {
+func GetMessageByID(handlerDeps *HandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := types.Response[model.Message]{}
 
 		messageIdStr := c.Param("message-id")
-		appCtx.Logger.Debugfln("query(message_id=%s)", messageIdStr)
+		handlerDeps.Logger.Debugfln("query(message_id=%s)", messageIdStr)
 
 		messageId, err := strconv.ParseInt(messageIdStr, 10, 64)
 		if err != nil {
-			appCtx.Logger.Errorfln("error parsing message ID: %v", err)
+			handlerDeps.Logger.Errorfln("error parsing message ID: %v", err)
 			resp.Error = &types.ErrorBlock{
 				Code:    http.StatusBadRequest,
 				Message: "Invalid message ID",
@@ -250,9 +248,9 @@ func GetMessageByID(appCtx *context.AppContext) gin.HandlerFunc {
 			return
 		}
 
-		message, err := appCtx.DatabaseService.GetMessageById(messageId)
+		message, err := handlerDeps.DatabaseService.GetMessageById(messageId)
 		if err != nil {
-			appCtx.Logger.Errorfln("Database.GetMessageById(): %v", err)
+			handlerDeps.Logger.Errorfln("Database.GetMessageById(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Message: err.Error(),
 				Errors: []types.ErrorItem{{
@@ -275,18 +273,18 @@ func GetMessageByID(appCtx *context.AppContext) gin.HandlerFunc {
 		resp.Data = &types.DataOrPage[model.Message]{}
 		resp.Data.Item = message
 
-		appCtx.Logger.Debugfln("response: %s", resp)
+		handlerDeps.Logger.Debugfln("response: %s", resp)
 		c.JSON(http.StatusOK, resp)
 		c.Abort()
 	}
 }
 
-func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
+func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := types.Response[model.Message]{}
 		var reqBody MessagePostRequestBody
 		if err := c.ShouldBindJSON(&reqBody); err != nil {
-			appCtx.Logger.Errorfln("c.ShouldBindJSON(): %v", err)
+			handlerDeps.Logger.Errorfln("c.ShouldBindJSON(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Code:    http.StatusBadRequest,
 				Message: "Invalid request body",
@@ -299,8 +297,8 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if err := appCtx.Validator.Validate(reqBody); err != nil {
-			appCtx.Logger.Errorfln("Validator.Validate(): %v", err)
+		if err := handlerDeps.Validator.Validate(reqBody); err != nil {
+			handlerDeps.Logger.Errorfln("Validator.Validate(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Code:    http.StatusBadRequest,
 				Message: "Invalid request body",
@@ -313,13 +311,13 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		appCtx.Logger.Debugfln("request body: %s", reqBody)
+		handlerDeps.Logger.Debugfln("request body: %s", reqBody)
 
 		timeoutContext, cancel := ctx.WithTimeout(c, 5*time.Second)
 		defer cancel()
-		messageId, err := appCtx.IdGeneratorService.GenerateId(timeoutContext)
+		messageId, err := handlerDeps.IdGeneratorService.GenerateId(timeoutContext)
 		if err != nil {
-			appCtx.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
+			handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Code:    http.StatusInternalServerError,
 				Message: "Internal server error",
@@ -337,9 +335,9 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 		for i, attachment := range reqBody.Attachments {
 			timeoutContext, cancel := ctx.WithTimeout(c, 5*time.Second)
 			defer cancel()
-			attachmentId, err := appCtx.IdGeneratorService.GenerateId(timeoutContext)
+			attachmentId, err := handlerDeps.IdGeneratorService.GenerateId(timeoutContext)
 			if err != nil {
-				appCtx.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
+				handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
 				resp.Error = &types.ErrorBlock{
 					Code:    http.StatusInternalServerError,
 					Message: "Internal server error",
@@ -371,11 +369,11 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			Attachments:      attachments,
 			ReplyToMessageId: reqBody.ReplyToMessageId,
 		}
-		appCtx.Logger.Debugfln("message: %s", message)
+		handlerDeps.Logger.Debugfln("message: %s", message)
 
-		msg, err := appCtx.DatabaseService.CreateMessage(message)
+		msg, err := handlerDeps.DatabaseService.CreateMessage(message)
 		if err != nil {
-			appCtx.Logger.Errorfln("Database.CreateMessage(): %v", err)
+			handlerDeps.Logger.Errorfln("Database.CreateMessage(): %v", err)
 			resp.Error = &types.ErrorBlock{
 				Message: err.Error(),
 				Errors: []types.ErrorItem{{
@@ -395,23 +393,23 @@ func CreateMessage(appCtx *context.AppContext) gin.HandlerFunc {
 			return
 		}
 
-		go func() {
-			err := kafka.WriteMessages(appCtx.KafkaWriterService, []kafka.KMessage[kafka.MessageResourceCreatedEvent]{
-				{
-					Topic: kafka.MESSAGE_RESOURCE_CREATED_TOPIC,
-					Key:   kafka.CreateEventKey(msg.ReceiverId.Int64()),
-					Value: kafka.MessageResourceCreatedEvent{
-						Message: *msg,
-					},
-				},
-			})
-
-			if err != nil {
-				appCtx.Logger.Errorfln("failed to write message resource created event to kafka: %v", err)
-			} else {
-				appCtx.Logger.Debugfln("message resource created event written to kafka successfully")
-			}
-		}()
+		// go func() {
+		// 	err := kafka.WriteMessages(handlerDeps.KafkaWriterService, []kafka.KMessage[kafka.MessageResourceCreatedEvent]{
+		// 		{
+		// 			Topic: kafka.MESSAGE_RESOURCE_CREATED_TOPIC,
+		// 			Key:   kafka.CreateEventKey(msg.ReceiverId.Int64()),
+		// 			Value: kafka.MessageResourceCreatedEvent{
+		// 				Message: *msg,
+		// 			},
+		// 		},
+		// 	})
+		//
+		// 	if err != nil {
+		// 		handlerDeps.Logger.Errorfln("failed to write message resource created event to kafka: %v", err)
+		// 	} else {
+		// 		handlerDeps.Logger.Debugfln("message resource created event written to kafka successfully")
+		// 	}
+		// }()
 
 		resp.Data = &types.DataOrPage[model.Message]{}
 		resp.Data.Item = msg
