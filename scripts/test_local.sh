@@ -33,11 +33,12 @@ MEDIA_SERVICE_URL=${MEDIA_SERVICE_URL:-"http://localhost:8300"}
 # External Services
 ID_GENERATOR_ADDR="${ID_GENERATOR_ADDR:-localhost:9000}"
 ID_GENERATOR_CERT_DIR="${ID_GENERATOR_CERT_DIR:-$ROOT_DIR/environments/test/conversation/services/snowflake/ssl/certs}"
+ID_GENERATOR_EPOCH="${ID_GENERATOR_EPOCH:-1654041600000}" # must match the epoch used by the ID generator service
 MESSAGE_SERVICE_URL="${MESSAGE_SERVICE_URL:-http://localhost:8100}"
 USER_SERVICE_URL="${USER_SERVICE_URL:-http://localhost:8400}"
 MEDIA_SERVICE_URL="${MEDIA_SERVICE_URL:-http://localhost:8300}"
 KAFKA_BROKERS="${KAFKA_BROKERS:-localhost:29092,localhost:39092,localhost:49092}"
-KAFKA_OUTBOX_CHECK_INTERVAL_MS="${KAFKA_OUTBOX_CHECK_INTERVAL_MS:-500}"
+OUTBOX_CHECK_INTERVAL_MS="${OUTBOX_CHECK_INTERVAL_MS:-500}"
 
 # Test-Specific Variables
 ADMIN_DATABASE_URL=${ADMIN_DATABASE_URL:-"postgresql://admin:testpass123@localhost:6000/chat-app?sslmode=disable"}
@@ -65,6 +66,7 @@ $ROOT_DIR/tests/logs/broker_3.log=chat-app-kafka-broker-3
 "
 
 TOPICS="
+message-resource-created:2:2;
 asset-resource-delete:2:2;
 asset-resource-delete-dlq:1:1;
 participant-avatar-update:2:2;

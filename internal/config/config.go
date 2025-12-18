@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type LogConfig struct {
@@ -17,6 +18,7 @@ type LogConfig struct {
 type IdGeneratorConfig struct {
 	Addr    string
 	CertDir string
+	Epoch   int64
 }
 
 type DatabaseConfig struct {
@@ -31,14 +33,19 @@ type KafkaConfig struct {
 	Brokers []string
 }
 
+type OutboxProcessorConfig struct {
+	CheckInterval time.Duration
+}
+
 type Config struct {
-	ServerPort        int
-	Env               string
-	LogConfig         LogConfig
-	IdGeneratorConfig IdGeneratorConfig
-	DatabaseConfig    DatabaseConfig
-	MediaConfig       MediaConfig
-	KafkaConfig       KafkaConfig
+	ServerPort            int
+	Env                   string
+	LogConfig             LogConfig
+	IdGeneratorConfig     IdGeneratorConfig
+	DatabaseConfig        DatabaseConfig
+	MediaConfig           MediaConfig
+	KafkaConfig           KafkaConfig
+	OutboxProcessorConfig OutboxProcessorConfig
 }
 
 // LoadConfig loads the configuration from env file. It will return Config instance
@@ -73,11 +80,15 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = c.setOutboxProcessorConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	return c, nil
 }
 
-func (k *KafkaConfig) String() string {
+func (k KafkaConfig) String() string {
 	parts := []string{
 		fmt.Sprintf("BROKERS: %s", strings.Join(k.Brokers, ", ")),
 	}
@@ -85,7 +96,15 @@ func (k *KafkaConfig) String() string {
 	return fmt.Sprintf("KafkaConfig{%s}", strings.Join(parts, ", "))
 }
 
-func (l *LogConfig) String() string {
+func (o OutboxProcessorConfig) String() string {
+	parts := []string{
+		fmt.Sprintf("CHECK_INTERVAL: %s", o.CheckInterval),
+	}
+
+	return fmt.Sprintf("OutboxProcessorConfig{%s}", strings.Join(parts, ", "))
+}
+
+func (l LogConfig) String() string {
 	parts := []string{
 		fmt.Sprintf("LEVEL: %s", l.Level),
 		fmt.Sprintf("KIND: %s", l.Kind),
@@ -94,24 +113,25 @@ func (l *LogConfig) String() string {
 	return fmt.Sprintf("LogConfig{%s}", strings.Join(parts, ", "))
 }
 
-func (m *MediaConfig) String() string {
+func (m MediaConfig) String() string {
 	return fmt.Sprintf("MediaConfig{URL: %s}", m.URL)
 }
 
-func (d *DatabaseConfig) String() string {
+func (d DatabaseConfig) String() string {
 	return fmt.Sprintf("DatabaseConfig{URL: %s}", d.URL)
 }
 
-func (s *IdGeneratorConfig) String() string {
+func (s IdGeneratorConfig) String() string {
 	parts := []string{
 		fmt.Sprintf("ADDR: %s", s.Addr),
 		fmt.Sprintf("CERT_DIR: %s", s.CertDir),
+		fmt.Sprintf("EPOCH: %d", s.Epoch),
 	}
 
 	return fmt.Sprintf("SnowflakeConfig{%s}", strings.Join(parts, ", "))
 }
 
-func (c *Config) String() string {
+func (c Config) String() string {
 	parts := []string{
 		fmt.Sprintf("SERVER_PORT: %d", c.ServerPort),
 		fmt.Sprintf("LOG_CONFIG: %s", c.LogConfig),
@@ -120,6 +140,7 @@ func (c *Config) String() string {
 		fmt.Sprintf("ID_GENERATOR_CONFIG: %s", c.IdGeneratorConfig),
 		fmt.Sprintf("MEDIA_CONFIG: %s", c.MediaConfig),
 		fmt.Sprintf("KAFKA_CONFIG: %s", c.KafkaConfig),
+		fmt.Sprintf("OUTBOX_PROCESSOR_CONFIG: %s", c.OutboxProcessorConfig),
 	}
 
 	return fmt.Sprintf("Config{%s}", strings.Join(parts, ", "))
@@ -135,8 +156,22 @@ func (c *Config) setKafkaConfig() error {
 	if len(brokers) == 0 {
 		return fmt.Errorf("KAFKA_BROKERS must contain at least one broker")
 	}
-
 	c.KafkaConfig.Brokers = brokers
+	return nil
+}
+
+func (c *Config) setOutboxProcessorConfig() error {
+	intervalStr, has := os.LookupEnv("OUTBOX_CHECK_INTERVAL_MS")
+	outboxCheckIntervalMs := 500 // Default to 500ms
+	if has {
+		interval, err := strconv.Atoi(intervalStr)
+		if err != nil {
+			return fmt.Errorf("OUTBOX_CHECK_INTERVAL_MS is invalid: %v", err)
+		}
+		outboxCheckIntervalMs = interval
+	}
+
+	c.OutboxProcessorConfig.CheckInterval = time.Duration(outboxCheckIntervalMs) * time.Millisecond
 	return nil
 }
 
@@ -187,6 +222,17 @@ func (c *Config) setIdGeneratorConfig() error {
 		certDir = ""
 	}
 
+	epochStr, has := os.LookupEnv("ID_GENERATOR_EPOCH")
+	var epoch int64 = 1672531200000
+	if has {
+		var err error
+		epoch, err = strconv.ParseInt(epochStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("ID_GENERATOR_EPOCH is invalid: %v", err)
+		}
+	}
+
+	c.IdGeneratorConfig.Epoch = epoch
 	c.IdGeneratorConfig.Addr = addr
 	c.IdGeneratorConfig.CertDir = certDir
 

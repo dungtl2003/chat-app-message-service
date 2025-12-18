@@ -6,6 +6,7 @@ import (
 )
 
 type MessageType string
+type OutboxStatus string
 
 const (
 	MSG_TEXT     MessageType = "TEXT"
@@ -18,6 +19,9 @@ const (
 	MSG_LOCATION MessageType = "LOCATION"
 	MSG_POLL     MessageType = "POLL"
 	MSG_SYSTEM   MessageType = "SYSTEM"
+
+	OUTBOX_PENDING OutboxStatus = "PENDING"
+	OUTBOX_SENT    OutboxStatus = "SENT"
 )
 
 type Message struct {
@@ -31,7 +35,27 @@ type Message struct {
 	ReceiverId       types.JsonInt64     `json:"receiver_id"`
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
 
-	Attachments []Attachment `json:"attachments"`
+	Attachments    []Attachment `json:"attachments"`
+	IdempotencyKey string       `json:"idempotency_key"` // for deduplication at producer side (fast path)
+}
+
+type MessageOutbox struct {
+	Id                  types.JsonInt64    `json:"id"`
+	MessageId           types.JsonInt64    `json:"message_id"`
+	ConversationId      types.JsonInt64    `json:"conversation_id"`
+	ConversationEventId types.JsonInt64    `json:"conversation_event_id"`
+	Payload             types.Json         `json:"payload"`
+	Status              OutboxStatus       `json:"status"`
+	CreatedAt           types.JsonTime     `json:"created_at"`
+	ProcessedAt         types.JsonNullTime `json:"processed_at"`
+	RetryCount          types.JsonInt64    `json:"retry_count"`
+	LastError           string             `json:"last_error"`
+	NextRetryAt         types.JsonTime     `json:"next_retry_at"`
+}
+
+type MessageOutboxPayload struct {
+	Message        Message `json:"message"`
+	IdempotencyKey string  `json:"idempotency_key"` // for deduplication at consumer side (slow path)
 }
 
 func (m Message) String() string {

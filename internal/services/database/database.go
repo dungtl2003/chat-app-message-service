@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/logging"
@@ -23,7 +24,8 @@ type DataFile struct {
 }
 
 var (
-	ErrDatabaseError = fmt.Errorf("database error")
+	ErrDatabaseError      = fmt.Errorf("database error")
+	ErrDatabaseNotRunning = fmt.Errorf("database is not running")
 )
 
 type DatabaseService struct {
@@ -88,13 +90,138 @@ func (d *DatabaseService) Close() error {
 	return err
 }
 
+// FetchPendingOutboxEvents fetches pending outbox events for processing.
+// `ErrDatabaseNotRunning` will be returned if the database is not running.
+func (d *DatabaseService) FetchPendingOutboxEvents(
+	ctx context.Context,
+	limit int64,
+) ([]model.MessageOutbox, error) {
+	if d.Status() == services.ServiceStopped {
+		return nil, ErrDatabaseNotRunning
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+
+	// 1. SELECT pending events
+	// 2. ORDER BY id ASC (FIFO)
+	// 3. DISTINCT ON (conversation_id) -> Ensures we only pick the very first message for a convo.
+	//    If the first message is stuck/locked, we skip the WHOLE conversation.
+	// 4. FOR UPDATE SKIP LOCKED -> Allows other instances to pick different conversations.
+	query := `
+    SELECT 
+		id, 
+		message_id, 
+		conversation_id, 
+		conversation_event_id, 
+		payload,
+		status, 
+		created_at, 
+		processed_at, 
+		retry_count, 
+		last_error, 
+		next_retry_at
+    FROM message.message_outbox
+    WHERE id IN (
+        SELECT DISTINCT ON (conversation_id) id
+        FROM message.message_outbox
+        WHERE status = $1 AND next_retry_at <= NOW()
+        ORDER BY conversation_id, id ASC
+    )
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+    `
+	args := []any{model.OUTBOX_PENDING, limit}
+
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	rows, err := d.client.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []model.MessageOutbox
+	for rows.Next() {
+		var e model.MessageOutbox
+		// Scan based on your actual columns
+		if err := rows.Scan(
+			&e.Id,
+			&e.MessageId,
+			&e.ConversationId,
+			&e.ConversationEventId,
+			&e.Payload,
+			&e.Status,
+			&e.CreatedAt,
+			&e.ProcessedAt,
+			&e.RetryCount,
+			&e.LastError,
+			&e.NextRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, nil
+}
+
+// MarkOutboxEventSent marks an outbox event as processed.
+// `ErrDatabaseNotRunning` will be returned if the database is not running.
+func (d *DatabaseService) MarkOutboxEventSent(
+	ctx context.Context,
+	id int64,
+) error {
+	if d.Status() == services.ServiceStopped {
+		return ErrDatabaseNotRunning
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+
+	query := `UPDATE message.message_outbox SET status = $1, processed_at = NOW() WHERE id = $2`
+	args := []any{model.OUTBOX_SENT, id}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	_, err := d.client.ExecContext(ctx, query, args...)
+	return err
+}
+
+// MarkOutboxEventFailed marks an outbox event as failed, increments the retry count,
+// and schedules the next retry time using exponential backoff.
+// `ErrDatabaseNotRunning` will be returned if the database is not running.
+func (d *DatabaseService) MarkOutboxEventFailed(ctx context.Context, id int64, errRaw error) error {
+	if d.Status() == services.ServiceStopped {
+		return ErrDatabaseNotRunning
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+
+	// Exponential backoff or fixed delay (e.g., 5 seconds)
+	// We increment retry_count and push next_retry_at into the future
+	query := `
+        UPDATE message.message_outbox 
+        SET retry_count = retry_count + 1,
+            last_error = $1,
+            next_retry_at = NOW() + (INTERVAL '1 second' * power(2, retry_count))
+        WHERE id = $2`
+	args := []any{errRaw.Error(), id}
+
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	_, err := d.client.ExecContext(ctx, query, args...)
+	return err
+}
+
 // CreateMessage create a new message. It will return the created message and
 // error if occurs.
-// ErrDatabaseError will be returned if database error occurs.
-func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, error) {
+// `ErrDatabaseNotRunning` will be returned if the database is not running.
+func (d *DatabaseService) CreateMessage(
+	ctx context.Context,
+	message model.Message,
+	idempotencyKey string,
+	conversationEventId int64,
+	convEventCreatedAt types.JsonTime,
+) (*model.Message, error) {
 	if d.Status() == services.ServiceStopped {
-		d.logger.Errorfln("[%s] Database is not running", d.Name())
-		return nil, ErrDatabaseError
+		return nil, ErrDatabaseNotRunning
 	}
 	if d.Status() != services.ServiceReady {
 		d.logger.Warnfln("[%s] Database is not ready", d.Name())
@@ -103,7 +230,7 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 	tx, err := d.client.Begin()
 	if err != nil {
 		d.logger.Errorfln("client.Begin(): %v", err)
-		return nil, ErrDatabaseError
+		return nil, err
 	}
 
 	defer func() {
@@ -118,12 +245,21 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		);`
-	args := []any{message.Id, message.Content, message.Type, message.CreatedAt, message.UpdatedAt, message.DeletedAt, message.SenderId, message.ReceiverId, message.ReplyToMessageId}
+	args := []any{
+		message.Id,
+		message.Content,
+		message.Type,
+		message.CreatedAt,
+		message.UpdatedAt,
+		message.DeletedAt,
+		message.SenderId,
+		message.ReceiverId,
+		message.ReplyToMessageId,
+	}
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
-	_, err = tx.Exec(query, args...)
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		d.logger.Errorfln("tx.Exec(): %v", err)
-		return nil, ErrDatabaseError
+		return nil, err
 	}
 
 	if len(message.Attachments) > 0 {
@@ -146,10 +282,9 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 		) VALUES %s;
 	`, strings.Join(values, ", "))
 		d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
-		_, err = tx.Exec(query, args...)
+		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			d.logger.Errorfln("tx.Exec(): %v", err)
-			return nil, ErrDatabaseError
+			return nil, err
 		}
 	}
 
@@ -177,25 +312,64 @@ func (d *DatabaseService) CreateMessage(message model.Message) (*model.Message, 
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	var msg model.Message
 	var rawAttachments json.RawMessage
-	messageRow := tx.QueryRow(query, args...)
+	messageRow := tx.QueryRowContext(ctx, query, args...)
 	err = messageRow.Scan(
-		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &msg.ReplyToMessageId,
-		&rawAttachments)
+		&msg.Id,
+		&msg.Content,
+		&msg.Type,
+		&msg.CreatedAt,
+		&msg.UpdatedAt,
+		&msg.DeletedAt,
+		&msg.SenderId,
+		&msg.ReceiverId,
+		&msg.ReplyToMessageId,
+		&rawAttachments,
+	)
 	if err != nil {
-		d.logger.Errorfln("messageRow.Scan(): %v", err)
-		return nil, ErrDatabaseError
+		return nil, err
 	}
+	msg.IdempotencyKey = idempotencyKey
 
 	err = json.Unmarshal(rawAttachments, &msg.Attachments)
 	if err != nil {
-		d.logger.Errorfln("json.Unmarshal(): %v", err)
-		return nil, ErrDatabaseError
+		return nil, err
+	}
+
+	payloadData := model.MessageOutboxPayload{
+		Message:        msg,
+		IdempotencyKey: idempotencyKey,
+	}
+	payloadBytes, err := json.Marshal(payloadData)
+	if err != nil {
+		return nil, err
+	}
+	payloadJson := types.NewJson(payloadBytes)
+
+	query = `
+		INSERT INTO message.message_outbox (
+			id, message_id, conversation_id, conversation_event_id, payload, status, created_at, next_retry_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		);`
+	args = []any{
+		conversationEventId, // we use conversationEventId as outbox ID
+		message.Id,
+		message.ReceiverId,
+		conversationEventId,
+		payloadJson,
+		model.OUTBOX_PENDING,
+		convEventCreatedAt,
+		convEventCreatedAt, // first try immediately
+	}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	_, err = tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		d.logger.Errorfln("tx.Commit(): %v", err)
-		return nil, ErrDatabaseError
+		return nil, err
 	}
 
 	return &msg, nil
@@ -361,6 +535,47 @@ func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error
 	}
 
 	return &msg, nil
+}
+
+// GetOutboxEventById get an outbox event by its ID. It will return the outbox event and error
+// if occurs. If the outbox event is not found, it will return nil, nil.
+func (d *DatabaseService) GetOutboxEventById(ctx context.Context, id int64) (*model.MessageOutbox, error) {
+	if d.Status() == services.ServiceStopped {
+		return nil, ErrDatabaseNotRunning
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+
+	query := `
+		SELECT
+			id, message_id, conversation_id, conversation_event_id, payload, status, created_at, processed_at, retry_count, last_error, next_retry_at
+		FROM message.message_outbox
+		WHERE id = $1;
+	`
+	args := []any{id}
+	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	var e model.MessageOutbox
+	err := d.client.QueryRowContext(ctx, query, args...).Scan(
+		&e.Id,
+		&e.MessageId,
+		&e.ConversationId,
+		&e.ConversationEventId,
+		&e.Payload,
+		&e.Status,
+		&e.CreatedAt,
+		&e.ProcessedAt,
+		&e.RetryCount,
+		&e.LastError,
+		&e.NextRetryAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &e, nil
 }
 
 // GetAllMessages get all messages in the database. The function is currently used

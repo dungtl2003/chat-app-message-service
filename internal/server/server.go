@@ -124,6 +124,15 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		}
 		forwarder.Start(ctx)
 	})
+	s.workers = append(s.workers, func(ctx context.Context) {
+		processor := &workers.OutboxProcessor{
+			DB:                  databaseService,
+			Logger:              loggerWrapper,
+			OutboxCheckInterval: config.OutboxProcessorConfig.CheckInterval,
+			Producer:            kafkaProducerService,
+		}
+		processor.Start(ctx)
+	})
 
 	loggerWrapper.Info("Creating application context")
 	handlerDeps := &api.HandlerDeps{
@@ -131,7 +140,7 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		Validator:          validator,
 		Logger:             loggerWrapper,
 		DatabaseService:    databaseService,
-		KafkaProducer:      kafkaProducerService,
+		Config:             config,
 	}
 
 	services := []services.Service{

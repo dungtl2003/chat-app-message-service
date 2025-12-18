@@ -1,12 +1,10 @@
 # Message service
 
-Last updated: 2025-09-14
+Last updated: 2025-12-19
 
 # Table of Contents    
 
 - [Description](#description)
-- [Endpoints](#endpoints)
-    - [GET /healthcheck](#get-healthcheck)
 - [Configuration](#configuration)
 - [Running](#running)
 - [Testing](#testing)
@@ -14,13 +12,6 @@ Last updated: 2025-09-14
 ## Description
 
 This service is responsible for managing media files, including uploading, processing, and serving media content. It provides an API for interacting with media files and integrates with other services for storage and processing.
-
-## Endpoints
-
-### GET /healthcheck
-
-- **Description**: Check the health status of the service.
-- **Response**: JSON object with the health status.
 
 ## Configuration
 
@@ -32,11 +23,11 @@ This service is responsible for managing media files, including uploading, proce
 | LOG_KIND | The kind of log to output | No | TEXT | string | TEXT, JSON |
 | ID_GENERATOR_ADDR | The address of the id generator service | Yes | | string | any valid string made of address and port (e.g. localhost:8501) |
 | ID_GENERATOR_CERT_DIR | The directory to the certificate of the id generator service | No | | string | any valid directory |
+| ID_GENERATOR_EPOCH | The epoch to use for the id generator service | No | 1672531200000 | int | any valid epoch in milliseconds |
 | ENVIRONMENT | The environment the service is running in | No | dev | string | dev, prod, test |
 | MEDIA_SERVICE_URL | The URL to the media service | Yes | | string | any valid URL |
 | KAFKA_BROKERS | The addresses of the Kafka brokers | Yes | | string | comma-separated list of broker addresses (e.g. localhost:9092,localhost:9093) |
-
-You can see the full configuration example in `./environments/.env.template` file.
+| OUTBOX_CHECK_INTERVAL_MS | The interval in milliseconds to check the outbox for new messages | No | 500 | int | any valid integer |
 
 ## Running
 

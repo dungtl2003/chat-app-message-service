@@ -102,3 +102,15 @@ func ConvertCamelToSnake(name string) string {
 
 	return buffer.String()
 }
+
+// ExtractTimestampFromSnowflake extracts the timestamp (in milliseconds)
+// from a Snowflake ID.
+// Snowflake structure:
+// - 1 bit: unused (sign bit)
+// - 41 bits: timestamp (in milliseconds) since custom epoch
+// - 10 bits: machine ID
+// - 12 bits: sequence number
+func ExtractTimestampFromSnowflake(snowflake int64, epoch int64) int64 {
+	timestamp := (snowflake >> 22) + epoch
+	return timestamp
+}

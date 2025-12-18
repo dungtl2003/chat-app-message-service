@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"dungtl2003/chat-app-message-service/internal/model"
+	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -33,7 +34,10 @@ func (e DLQEvent) ToJson() []byte {
 }
 
 type MessageResourceCreatedEvent struct {
-	Message model.Message `json:"message"`
+	Message             model.Message   `json:"message"`
+	ConversationEventId types.JsonInt64 `json:"conversation_event_id"`
+	ConversationId      types.JsonInt64 `json:"conversation_id"`
+	OutboxId            types.JsonInt64 `json:"outbox_id"`
 }
 
 func (e MessageResourceCreatedEvent) ToJson() []byte {
