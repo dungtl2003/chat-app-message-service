@@ -218,7 +218,6 @@ func (d *DatabaseService) CreateMessage(
 	message model.Message,
 	idempotencyKey string,
 	conversationEventId int64,
-	convEventCreatedAt types.JsonTime,
 ) (*model.Message, error) {
 	if d.Status() == services.ServiceStopped {
 		return nil, ErrDatabaseNotRunning
@@ -352,14 +351,14 @@ func (d *DatabaseService) CreateMessage(
 			$1, $2, $3, $4, $5, $6, $7, $8
 		);`
 	args = []any{
-		conversationEventId, // we use conversationEventId as outbox ID
-		message.Id,
-		message.ReceiverId,
+		msg.Id,
+		msg.Id,
+		msg.ReceiverId,
 		conversationEventId,
 		payloadJson,
 		model.OUTBOX_PENDING,
-		convEventCreatedAt,
-		convEventCreatedAt, // first try immediately
+		msg.CreatedAt,
+		msg.CreatedAt, // first retry at the time of message creation
 	}
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	_, err = tx.ExecContext(ctx, query, args...)

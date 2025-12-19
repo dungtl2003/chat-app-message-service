@@ -351,9 +351,6 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		messageCreatedAtTimestamp := helper.ExtractTimestampFromSnowflake(messageId, handlerDeps.Config.IdGeneratorConfig.Epoch)
 		messageCreatedAt := types.NewJsonTimeFromMillisTimestamp(messageCreatedAtTimestamp)
 
-		convEventCreatedAtTimestamp := helper.ExtractTimestampFromSnowflake(conversationEventId, handlerDeps.Config.IdGeneratorConfig.Epoch)
-		convEventCreatedAt := types.NewJsonTimeFromMillisTimestamp(convEventCreatedAtTimestamp)
-
 		// TODO: process attachments
 		// attachments := make([]model.Attachment, len(reqBody.Attachments))
 		// for i, attachment := range reqBody.Attachments {
@@ -401,7 +398,6 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			message,
 			reqBody.IdempotencyKey,
 			conversationEventId,
-			convEventCreatedAt,
 		)
 		if err != nil {
 			handlerDeps.Logger.Errorfln("Database.CreateMessage(): %v", err)
