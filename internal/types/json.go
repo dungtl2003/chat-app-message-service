@@ -19,6 +19,16 @@ func NewJson(data any) Json {
 	return Json{RawMessage: data.([]byte)}
 }
 
+func NewJsonFromString(s string) Json {
+	if s == "" {
+		return Json{}
+	}
+	if s == "{}" {
+		return Json{RawMessage: json.RawMessage{}}
+	}
+	return Json{RawMessage: json.RawMessage(s)}
+}
+
 func (j Json) String() string {
 	if j.RawMessage == nil {
 		return ""
@@ -29,13 +39,6 @@ func (j Json) String() string {
 	return string(j.RawMessage)
 }
 
-func (j *Json) Dereference() Json {
-	if j == nil {
-		return Json{}
-	}
-	return *j
-}
-
 func (j *Json) Scan(value any) error {
 	if value == nil {
 		j.RawMessage = nil
@@ -44,13 +47,15 @@ func (j *Json) Scan(value any) error {
 
 	switch value := value.(type) {
 	case []byte:
-		j.RawMessage = value
+		// Create a deep copy of the bytes
+		j.RawMessage = make([]byte, len(value))
+		copy(j.RawMessage, value)
 		return nil
 	case string:
 		j.RawMessage = []byte(value)
 		return nil
 	default:
-		return nil
+		return nil // Or return an error if you want to be strict
 	}
 }
 
@@ -59,12 +64,23 @@ func (j Json) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	if len(j.RawMessage) == 0 {
-		return []byte{}, nil
+		// Return empty JSON object {} for empty slice to satisfy JSONB columns
+		return []byte("{}"), nil
 	}
 
-	rawBytes, err := json.Marshal(j.RawMessage)
-	if err != nil {
-		return nil, err
+	return []byte(j.RawMessage), nil
+}
+
+func (j Json) MarshalJSON() ([]byte, error) {
+	if j.RawMessage == nil {
+		return []byte("null"), nil
 	}
-	return rawBytes, nil
+	if len(j.RawMessage) == 0 {
+		return []byte("{}"), nil
+	}
+	return j.RawMessage, nil
+}
+
+func UnmarshalJSON(data Json, target any) error {
+	return json.Unmarshal(data.RawMessage, target)
 }
