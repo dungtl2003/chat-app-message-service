@@ -89,8 +89,9 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	var event kafka.MessageResourceCreatedEvent
 	err = json.Unmarshal(msg.Value, &event)
 	require.NoError(t, err)
-	require.Equal(t, respMsg.Id.Int64(), event.Message.Id.Int64())
-	require.Equal(t, respMsg.Content, event.Message.Content)
+	require.EqualValues(t, respMsg.Id.Int64(), event.Message.Id.Int64())
+	require.EqualValues(t, respMsg.Content, event.Message.Content)
+	require.EqualValues(t, respMsg.IdempotencyKey, event.IdempotencyKey)
 
 	err = reader.CommitMessages(context.Background(), msg)
 	require.NoError(t, err)

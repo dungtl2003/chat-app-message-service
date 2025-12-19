@@ -128,6 +128,7 @@ func toKafkaMessageEvent(m model.MessageOutbox) (kafka.KMessage[kafka.MessageRes
 			ConversationEventId: m.ConversationEventId,
 			ConversationId:      m.ConversationId,
 			OutboxId:            m.Id,
+			IdempotencyKey:      payload.IdempotencyKey,
 		},
 	}, nil
 }

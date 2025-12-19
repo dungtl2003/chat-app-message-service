@@ -38,6 +38,7 @@ type MessageResourceCreatedEvent struct {
 	ConversationEventId types.JsonInt64 `json:"conversation_event_id"`
 	ConversationId      types.JsonInt64 `json:"conversation_id"`
 	OutboxId            types.JsonInt64 `json:"outbox_id"`
+	IdempotencyKey      string          `json:"idempotency_key"`
 }
 
 func (e MessageResourceCreatedEvent) ToJson() []byte {

@@ -26,6 +26,10 @@ const (
 	// TypeAsyncFireAndForget: Commit IMMEDIATELY, then Process.
 	// If failed, send straight to DLQ (no retries).
 	TypeAsyncFireAndForget
+	// TypeSyncContinue: Process successfully FIRST, then Commit.
+	// Used for strict ordering with limited retries.
+	// Blocks fetching new messages until processed or retries exhausted.
+	TypeSyncContinue
 )
 
 type TopicConfig struct {
@@ -111,7 +115,6 @@ func getTopicConfig(topic Topic, opts *ConsumerWithRetryOptions) TopicConfig {
 }
 
 // handleSyncMessage handles strict ordering.
-// Flow: Fetch -> Process (Retry Loop) -> Commit
 func handleSyncMessage(
 	ctx context.Context,
 	logger *logging.LoggerWrapper,
@@ -120,30 +123,54 @@ func handleSyncMessage(
 	config TopicConfig,
 ) {
 	var processErr error
+	attempt := 0
 
-	// Retry Loop (Blocking)
-	// We do not proceed to the next message until this one is handled or DLQ'd.
-	for i := 0; i <= config.MaxRetries; i++ {
+	// Infinite Loop for Processing
+	for {
+		attempt++
+
+		// 1. Try to Process
 		processErr = opts.Handler.Process(ctx, msg)
 		if processErr == nil {
-			break // Success!
+			// Success! Break the loop to commit.
+			break
 		}
 
-		logger.Warnfln("Sync processing failed (attempt %d/%d): %v", i+1, config.MaxRetries+1, processErr)
-		if i < config.MaxRetries {
-			time.Sleep(opts.Backoff.NextBackOff())
+		// 2. Handle Failure
+		// If we are in "Block" mode, we retry forever.
+		// If we are in "Continue" mode, we check MaxRetries.
+		if config.Type == TypeSyncContinue && attempt > config.MaxRetries {
+			logger.Errorfln("Sync retries exhausted. Moving to DLQ: %v", processErr)
+			opts.Handler.MoveToDLQ(ctx, msg, processErr)
+			// We break here to allow the Commit to happen below (skipping the bad message)
+			processErr = nil
+			break
+		}
+
+		// 3. Log and Wait
+		logger.Warnfln("[%s] Processing failed (attempt %d). Retrying... Error: %v",
+			msg.Topic, attempt, processErr)
+
+		// Backoff (capped at a reasonable max wait, e.g., 30s)
+		sleepTime := min(opts.Backoff.NextBackOff(), 30*time.Second)
+
+		select {
+		case <-ctx.Done():
+			// If server shuts down, we abort immediately.
+			// We return WITHOUT committing. On restart, we will fetch this msg again.
+			return
+		case <-time.After(sleepTime):
+			continue
 		}
 	}
 
-	if processErr != nil {
-		logger.Errorfln("Sync retries exhausted. Moving to DLQ: %v", processErr)
-		opts.Handler.MoveToDLQ(ctx, msg, processErr)
-		// We fall through to Commit here so we don't block the partition forever on a bad message
-	}
-
-	// Commit AFTER processing (or moving to DLQ)
-	if err := opts.Reader.CommitMessages(ctx, msg); err != nil {
-		logger.Errorfln("Failed to commit sync message: %v", err)
+	// 4. Commit (Only reachable if Success OR Moved to DLQ)
+	if processErr == nil {
+		if err := opts.Reader.CommitMessages(ctx, msg); err != nil {
+			logger.Errorfln("Failed to commit sync message: %v", err)
+		} else {
+			logger.Debugfln("Message committed: %s", msg.Key)
+		}
 	}
 }
 
