@@ -51,7 +51,7 @@ func (w *OutboxProcessor) processNextBatch(ctx context.Context) {
 	}
 
 	if len(outboxEvents) == 0 {
-		w.Logger.Debugfln("[%s] No pending outbox events found", w.Name())
+		// w.Logger.Debugfln("[%s] No pending outbox events found", w.Name())
 		return // Yield back to ticker
 	}
 

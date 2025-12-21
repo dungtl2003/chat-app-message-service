@@ -133,7 +133,7 @@ func (d *DatabaseService) FetchPendingOutboxEvents(
     `
 	args := []any{model.OUTBOX_PENDING, limit}
 
-	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
+	// d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	rows, err := d.client.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
