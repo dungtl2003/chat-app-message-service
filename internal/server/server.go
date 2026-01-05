@@ -8,9 +8,11 @@ import (
 	"dungtl2003/chat-app-message-service/internal/logging"
 	"dungtl2003/chat-app-message-service/internal/router"
 	"dungtl2003/chat-app-message-service/internal/services"
+	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/idgen"
 	"dungtl2003/chat-app-message-service/internal/services/kafka"
+	"dungtl2003/chat-app-message-service/internal/services/user"
 	"dungtl2003/chat-app-message-service/internal/workers"
 	"fmt"
 	"log"
@@ -23,7 +25,9 @@ import (
 )
 
 type MessageServerOptions struct {
-	IdGeneratorService idgen.IdGeneratorService
+	IdGeneratorService  idgen.IdGeneratorService
+	ConversationService conversation.ConversationService
+	UserService         user.UserService
 }
 
 type MessageServer struct {
@@ -95,6 +99,38 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		}
 	}
 
+	var userService user.UserService
+	if opts != nil && opts.UserService != nil {
+		loggerWrapper.Infofln("Using provided user service")
+		userService = opts.UserService
+	} else {
+		loggerWrapper.Infofln("Creating user service")
+		userService, err = user.NewUserServiceV1(
+			config.UserConfig.URL,
+			&user.UserServiceV1Options{
+				Logger: loggerWrapper,
+			})
+		if err != nil {
+			return nil, fmt.Errorf("error when creating user service: %w", err)
+		}
+	}
+
+	var conversationService conversation.ConversationService
+	if opts != nil && opts.ConversationService != nil {
+		loggerWrapper.Infofln("Using provided conversation service")
+		conversationService = opts.ConversationService
+	} else {
+		loggerWrapper.Infofln("Creating conversation service")
+		conversationService, err = conversation.NewConversationServiceV1(
+			config.ConversationConfig.URL,
+			&conversation.ConversationServiceV1Options{
+				Logger: loggerWrapper,
+			})
+		if err != nil {
+			return nil, fmt.Errorf("error when creating conversation service: %w", err)
+		}
+	}
+
 	dlqChan := make(chan kafka.KMessage[kafka.DLQEvent], 100)
 	msgChan := make(chan kafka.KMessage[kafka.MessageResourceCreatedEvent], 100)
 
@@ -136,17 +172,21 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 
 	loggerWrapper.Info("Creating application context")
 	handlerDeps := &api.HandlerDeps{
-		IdGeneratorService: idGeneratorService,
-		Validator:          validator,
-		Logger:             loggerWrapper,
-		DatabaseService:    databaseService,
-		Config:             config,
+		IdGeneratorService:  idGeneratorService,
+		Validator:           validator,
+		Logger:              loggerWrapper,
+		DatabaseService:     databaseService,
+		Config:              config,
+		UserService:         userService,
+		ConversationService: conversationService,
 	}
 
 	services := []services.Service{
 		idGeneratorService,
 		databaseService,
 		kafkaProducerService,
+		userService,
+		conversationService,
 	}
 	s.services = services
 

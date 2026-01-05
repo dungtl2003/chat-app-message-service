@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lib/pq"
 	_ "github.com/lib/pq" // postgresql driver support
 )
 
@@ -289,7 +290,7 @@ func (d *DatabaseService) CreateMessage(
 
 	query = `
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id, m.version,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
@@ -322,6 +323,7 @@ func (d *DatabaseService) CreateMessage(
 		&msg.SenderId,
 		&msg.ReceiverId,
 		&msg.ReplyToMessageId,
+		&msg.Version,
 		&rawAttachments,
 	)
 	if err != nil {
@@ -575,6 +577,140 @@ func (d *DatabaseService) GetOutboxEventById(ctx context.Context, id int64) (*mo
 		return nil, err
 	}
 	return &e, nil
+}
+
+// GetUsersByIds retrieves users from the database by user IDs.
+// The function returns a list of users (with deleted_at =IS NULL) and an error if occurs.
+// `ErrDatabaseError` will be returned if there is an error while executing the query.
+func (d *DatabaseService) GetUsersByIds(
+	ctx context.Context,
+	userIds []int64,
+) ([]model.ChatUser, error) {
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
+		return nil, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+	if len(userIds) == 0 {
+		return []model.ChatUser{}, nil
+	}
+
+	// we only get basic user info for privacy reason
+	query := `SELECT 
+		u.id, 
+		u.username, 
+		u.role, 
+		u.first_name, 
+		u.last_name, 
+		u.full_name, 
+		u.birthday, 
+		u.gender, 
+		u.avatar_id, 
+		u.created_at, 
+		u.updated_at, 
+		u.version
+	FROM chat_user.chat_user u
+	WHERE u.id = ANY($1) AND u.deleted_at IS NULL;`
+	args := []any{pq.Array(userIds)}
+	d.logger.Debugfln("query: %s --- args: %v", helper.StripWS(query), args)
+	rows, err := d.client.QueryContext(ctx, query, args...)
+	if err != nil {
+		d.logger.Errorfln("client.QueryContext(): %v", err)
+		return nil, ErrDatabaseError
+	}
+	defer rows.Close()
+
+	var users []model.ChatUser
+	for rows.Next() {
+		user := model.ChatUser{}
+		err := rows.Scan(
+			&user.Id,
+			&user.Username,
+			&user.Role,
+			&user.FirstName,
+			&user.LastName,
+			&user.FullName,
+			&user.Birthday,
+			&user.Gender,
+			&user.AvatarId,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+			&user.Version,
+		)
+		if err != nil {
+			d.logger.Errorfln("rows.Scan(): %v", err)
+			return nil, ErrDatabaseError
+		}
+
+		users = append(users, user)
+	}
+
+	if err = rows.Err(); err != nil {
+		d.logger.Errorfln("rows.Err(): %v", err)
+		return nil, ErrDatabaseError
+	}
+
+	return users, nil
+}
+
+// GetParticipantsByConversationIdAndUserIds retrieves participants from the database by conversation ID and user IDs.
+func (d *DatabaseService) GetParticipantsByConversationIdAndUserIds(
+	ctx context.Context,
+	conversationId int64,
+	userIds []int64,
+) ([]model.Participant, error) {
+	if d.Status() == services.ServiceStopped {
+		d.logger.Errorfln("[%s] Database is not running", d.Name())
+		return nil, ErrDatabaseError
+	}
+	if d.Status() != services.ServiceReady {
+		d.logger.Warnfln("[%s] Database is not ready", d.Name())
+	}
+
+	query := `SELECT
+		id,
+		user_id,
+		nickname,
+		role,
+		conversation_id
+	FROM conversation.participant
+	WHERE conversation_id = $1 AND user_id = ANY($2);`
+	args := []any{conversationId, pq.Array(userIds)}
+
+	d.logger.Debugfln("query: %s --- args: %v", helper.StripWS(query), args)
+	rows, err := d.client.QueryContext(ctx, query, args...)
+	if err != nil {
+		d.logger.Errorfln("client.QueryContext(): %v", err)
+		return nil, ErrDatabaseError
+	}
+	defer rows.Close()
+
+	var participants []model.Participant
+	for rows.Next() {
+		participant := model.Participant{}
+		err := rows.Scan(
+			&participant.Id,
+			&participant.UserId,
+			&participant.Nickname,
+			&participant.Role,
+			&participant.ConversationId,
+		)
+		if err != nil {
+			d.logger.Errorfln("rows.Scan(): %v", err)
+			return nil, ErrDatabaseError
+		}
+
+		participants = append(participants, participant)
+	}
+
+	if err = rows.Err(); err != nil {
+		d.logger.Errorfln("rows.Err(): %v", err)
+		return nil, ErrDatabaseError
+	}
+
+	return participants, nil
 }
 
 // GetAllMessages get all messages in the database. The function is currently used

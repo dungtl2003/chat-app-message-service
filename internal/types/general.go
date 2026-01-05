@@ -6,7 +6,13 @@ import (
 	"fmt"
 )
 
-const MICRO_LAYOUT = "2006-01-02T15:04:05.000000"
+type OutboxStatus string
+
+const (
+	MICRO_LAYOUT   string       = "2006-01-02T15:04:05.000000"
+	OUTBOX_PENDING OutboxStatus = "PENDING"
+	OUTBOX_SENT    OutboxStatus = "SENT"
+)
 
 type ErrorItem struct {
 	Message string `json:"message" validate:"omitempty"`
@@ -76,6 +82,9 @@ type Response[T any] struct {
 
 	Error *ErrorBlock    `json:"error" validate:"omitempty"`
 	Data  *DataOrPage[T] `json:"data" validate:"omitempty"`
+
+	// References holds side-loaded data (users, files, etc.)
+	References map[string]any `json:"references,omitempty"`
 }
 
 func (r Response[T]) String() string {

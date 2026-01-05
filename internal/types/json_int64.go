@@ -84,3 +84,7 @@ func (j *JsonInt64) UnmarshalJSON(data []byte) error {
 func NewJsonInt64(i int64) JsonInt64 {
 	return JsonInt64{i}
 }
+
+func (j JsonInt64) ToPtr() *JsonInt64 {
+	return &j
+}

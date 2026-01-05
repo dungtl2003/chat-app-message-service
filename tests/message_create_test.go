@@ -6,12 +6,16 @@ import (
 	"dungtl2003/chat-app-message-service/internal/api"
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/server"
+	"dungtl2003/chat-app-message-service/internal/services"
+	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/kafka"
+	"dungtl2003/chat-app-message-service/internal/services/user"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,6 +28,43 @@ const (
 	CONVS__MSG__CREATE_FILENAME = "conversations__message__create_test.json"
 )
 
+type MockConversationService struct {
+	MockNameFunc             func() string
+	MockStatusFunc           func() services.ServiceStatus
+	MockCloseFunc            func() error
+	MockBatchGetParticipants func(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error)
+}
+
+func (m *MockConversationService) Name() string {
+	if m.MockNameFunc != nil {
+		return m.MockNameFunc()
+	}
+	return "Mock Conversation Service"
+}
+
+func (m *MockConversationService) Status() services.ServiceStatus {
+	if m.MockStatusFunc != nil {
+		return m.MockStatusFunc()
+	}
+	return services.ServiceReady
+}
+
+func (m *MockConversationService) Close() error {
+	if m.MockCloseFunc != nil {
+		return m.MockCloseFunc()
+	}
+	return nil
+}
+
+func (m *MockConversationService) BatchGetParticipants(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error) {
+	if m.MockBatchGetParticipants != nil {
+		return m.MockBatchGetParticipants(req)
+	}
+	return &conversation.BatchGetParticipantsResponse{
+		ParticipantMap: map[int64]model.Participant{},
+	}, nil
+}
+
 func TestMessageCreateFlowShouldWork(t *testing.T) {
 	helper := NewTestHelper()
 	SetUp(helper, &SetUpOptions{
@@ -31,7 +72,41 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 			UserFile:         USERS__MSG__CREATE_FILENAME,
 			ConversationFile: CONVS__MSG__CREATE_FILENAME,
 		},
-		ServerOptions: &server.MessageServerOptions{},
+		ServerOptions: &server.MessageServerOptions{
+			UserService: &user.MockUserService{
+				MockGetUsers: func(req *user.GetUsersRequest) (*user.GetUsersResponse, error) {
+					users, err := helper.AdminDatabaseService.GetUsersByIds(t.Context(), req.UserIDs)
+					require.NoError(t, err)
+
+					userMap := make(map[int64]model.ChatUser)
+					for _, u := range users {
+						if u.AvatarId.Valid {
+							u.AvatarURL = types.NewJsonNullString(fmt.Sprintf("https://fake.media.service/assets/%d", u.AvatarId.Int64))
+						}
+						userMap[u.Id.Int64()] = u
+					}
+
+					return &user.GetUsersResponse{
+						UserMap: userMap,
+					}, nil
+				},
+			},
+			ConversationService: &MockConversationService{
+				MockBatchGetParticipants: func(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error) {
+					participants, err := helper.AdminDatabaseService.GetParticipantsByConversationIdAndUserIds(t.Context(), req.ConversationID, req.UserIDs)
+					require.NoError(t, err)
+
+					participantMap := make(map[int64]model.Participant)
+					for _, p := range participants {
+						participantMap[p.UserId.Int64()] = p
+					}
+
+					return &conversation.BatchGetParticipantsResponse{
+						ParticipantMap: participantMap,
+					}, nil
+				},
+			},
+		},
 	})
 	defer TearDown(helper)
 
@@ -54,8 +129,8 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	}
 	url := fmt.Sprintf("%s/messages", helper.MessageServiceURL)
 	reqBody := api.MessagePostRequestBody{
-		SenderId:       types.NewJsonInt64(senderId),
-		ReceiverId:     types.NewJsonInt64(receiverId),
+		SenderId:       types.NewJsonInt64(senderId).ToPtr(),
+		ReceiverId:     types.NewJsonInt64(receiverId).ToPtr(),
 		Content:        "Hello from user 4 to user 2",
 		Type:           model.MSG_TEXT,
 		IdempotencyKey: "unique-key-12345",
@@ -78,6 +153,16 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	respMsg := respBody.Data.Item
 	require.Equal(t, reqBody.Content, respMsg.Content)
 	require.Equal(t, reqBody.IdempotencyKey, respMsg.IdempotencyKey)
+
+	// Verify References
+	require.NotNil(t, respBody.References)
+	usersRef, ok := respBody.References["users"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, usersRef, strconv.FormatInt(senderId, 10))
+
+	participantsRef, ok := respBody.References["participants"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, participantsRef, strconv.FormatInt(senderId, 10))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

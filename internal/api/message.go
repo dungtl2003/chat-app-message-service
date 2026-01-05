@@ -3,8 +3,11 @@ package api
 import (
 	ctx "context"
 	"dungtl2003/chat-app-message-service/internal/helper"
+	"dungtl2003/chat-app-message-service/internal/middleware"
 	"dungtl2003/chat-app-message-service/internal/model"
+	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
+	"dungtl2003/chat-app-message-service/internal/services/user"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
 	"fmt"
@@ -16,14 +19,14 @@ import (
 )
 
 type AttachmentPostRequestBody struct {
-	AssetId  types.JsonInt64      `json:"asset_id" validate:"required"`
+	AssetId  *types.JsonInt64     `json:"asset_id" validate:"required"`
 	Position int                  `json:"position" validate:"required"`
 	Type     model.AttachmentType `json:"type" validate:"required,oneof=IMAGE VIDEO AUDIO FILE GIF STICKER"`
 }
 
 type MessagePostRequestBody struct {
-	SenderId         types.JsonInt64     `json:"sender_id" validate:"required"`
-	ReceiverId       types.JsonInt64     `json:"receiver_id" validate:"required"`
+	SenderId         *types.JsonInt64    `json:"sender_id" validate:"required"`
+	ReceiverId       *types.JsonInt64    `json:"receiver_id" validate:"required"`
 	Content          string              `json:"content" validate:"required"`
 	Type             model.MessageType   `json:"type" validate:"required"`
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
@@ -284,6 +287,12 @@ func GetMessageByID(handlerDeps *HandlerDeps) gin.HandlerFunc {
 func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := types.Response[model.Message]{}
+
+		token, err := middleware.GetToken(c)
+		if err != nil {
+			panic(fmt.Sprintf("middleware.GetToken(): %v. Might be missing AuthMiddleware?", err))
+		}
+
 		var reqBody MessagePostRequestBody
 		if err := c.ShouldBindJSON(&reqBody); err != nil {
 			handlerDeps.Logger.Errorfln("c.ShouldBindJSON(): %v", err)
@@ -386,8 +395,8 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			Type:             reqBody.Type,
 			CreatedAt:        messageCreatedAt,
 			UpdatedAt:        messageCreatedAt,
-			SenderId:         reqBody.SenderId,
-			ReceiverId:       reqBody.ReceiverId,
+			SenderId:         *reqBody.SenderId,
+			ReceiverId:       *reqBody.ReceiverId,
 			Attachments:      []model.Attachment{}, // add real attachments later
 			ReplyToMessageId: reqBody.ReplyToMessageId,
 		}
@@ -414,23 +423,58 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		// go func() {
-		// 	err := kafka.WriteMessages(handlerDeps.KafkaWriterService, []kafka.KMessage[kafka.MessageResourceCreatedEvent]{
-		// 		{
-		// 			Topic: kafka.MESSAGE_RESOURCE_CREATED_TOPIC,
-		// 			Key:   kafka.CreateEventKey(msg.ReceiverId.Int64()),
-		// 			Value: kafka.MessageResourceCreatedEvent{
-		// 				Message: *msg,
-		// 			},
-		// 		},
-		// 	})
-		//
-		// 	if err != nil {
-		// 		handlerDeps.Logger.Errorfln("failed to write message resource created event to kafka: %v", err)
-		// 	} else {
-		// 		handlerDeps.Logger.Debugfln("message resource created event written to kafka successfully")
-		// 	}
-		// }()
+		getUsersResp, err := handlerDeps.UserService.GetUsers(&user.GetUsersRequest{
+			UserIDs:       []int64{reqBody.SenderId.Int64()},
+			InternalToken: token,
+		})
+		if err != nil {
+			handlerDeps.Logger.Errorfln("UserService.GetUsers(): %v", err)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusInternalServerError,
+				Message: "Internal server error",
+				Errors: []types.ErrorItem{{
+					Message: "Internal server error",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		getParticipantsResp, err := handlerDeps.ConversationService.BatchGetParticipants(&conversation.BatchGetParticipantsRequest{
+			ConversationID: reqBody.ReceiverId.Int64(),
+			UserIDs:        []int64{reqBody.SenderId.Int64()},
+			InternalToken:  token,
+		})
+		if err != nil {
+			handlerDeps.Logger.Errorfln("ConversationService.BatchGetParticipants(): %v", err)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusInternalServerError,
+				Message: "Internal server error",
+				Errors: []types.ErrorItem{{
+					Message: "Internal server error",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		references := make(map[string]any)
+
+		userReferences := make(map[string]model.ChatUser)
+		for id, user := range getUsersResp.UserMap {
+			userReferences[strconv.FormatInt(id, 10)] = user
+		}
+		references["users"] = userReferences
+
+		participantReferences := make(map[string]model.Participant)
+		for id, participant := range getParticipantsResp.ParticipantMap {
+			participantReferences[strconv.FormatInt(id, 10)] = participant
+		}
+		references["participants"] = participantReferences
+
+		resp.References = references
 
 		resp.Data = &types.DataOrPage[model.Message]{}
 		resp.Data.Item = msg

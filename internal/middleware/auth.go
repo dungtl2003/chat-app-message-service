@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"dungtl2003/chat-app-message-service/internal/logging"
+	"dungtl2003/chat-app-message-service/internal/types"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -23,16 +24,32 @@ func AuthMiddleware(logger *logging.LoggerWrapper) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authToken := c.GetHeader("Authorization")
 		if authToken == "" {
-			logger.Debug("authorization header is required")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+			logger.Error("authorization header is required")
+			resp := types.Response[any]{}
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusUnauthorized,
+				Message: "Authorization header is required",
+				Errors: []types.ErrorItem{{
+					Message: "Authorization header is required",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
 			c.Abort()
 			return
 		}
 
 		parts := strings.Split(authToken, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			logger.Debug("authorization header format must be Bearer {token}")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header format must be Bearer {token}"})
+			logger.Error("authorization header format must be Bearer {token}")
+			resp := types.Response[any]{}
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusUnauthorized,
+				Message: "Authorization header format must be Bearer {token}",
+				Errors: []types.ErrorItem{{
+					Message: "Authorization header format must be Bearer {token}",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
 			c.Abort()
 			return
 		}
@@ -41,20 +58,44 @@ func AuthMiddleware(logger *logging.LoggerWrapper) gin.HandlerFunc {
 		tokenStr := parts[1]
 		tokClaim, err := parseToken(tokenStr)
 		if err != nil {
-			debugMSg := fmt.Sprintf("failed to parse token: %v", err)
-			logger.Debug(debugMSg)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			errorMSg := fmt.Sprintf("failed to parse token: %v", err)
+			logger.Error(errorMSg)
+			resp := types.Response[any]{}
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusUnauthorized,
+				Message: errorMSg,
+				Errors: []types.ErrorItem{{
+					Message: errorMSg,
+				}},
+			}
+
+			c.JSON(resp.Error.Code, resp)
 			c.Abort()
 			return
 		}
 
-		c.Set("token", tokClaim)
+		c.Set("token_claim", tokClaim)
+		c.Set("token", tokenStr)
 		c.Next()
 	}
 }
 
-func GetTokenClaim(c *gin.Context) (*InternalJWTClaim, error) {
+func GetToken(c *gin.Context) (string, error) {
 	token, exists := c.Get("token")
+	if !exists {
+		return "", fmt.Errorf("token not found in context")
+	}
+
+	tokenStr, ok := token.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid token type in context")
+	}
+
+	return tokenStr, nil
+}
+
+func GetTokenClaim(c *gin.Context) (*InternalJWTClaim, error) {
+	token, exists := c.Get("token_claim")
 	if !exists {
 		return nil, fmt.Errorf("token not found in context")
 	}

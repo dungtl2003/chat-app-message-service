@@ -29,6 +29,14 @@ type MediaConfig struct {
 	URL string
 }
 
+type UserConfig struct {
+	URL string
+}
+
+type ConversationConfig struct {
+	URL string
+}
+
 type KafkaConfig struct {
 	Brokers []string
 }
@@ -44,6 +52,8 @@ type Config struct {
 	IdGeneratorConfig     IdGeneratorConfig
 	DatabaseConfig        DatabaseConfig
 	MediaConfig           MediaConfig
+	UserConfig            UserConfig
+	ConversationConfig    ConversationConfig
 	KafkaConfig           KafkaConfig
 	OutboxProcessorConfig OutboxProcessorConfig
 }
@@ -73,6 +83,14 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	err = c.setMediaConfig()
+	if err != nil {
+		return nil, err
+	}
+	err = c.setUserConfig()
+	if err != nil {
+		return nil, err
+	}
+	err = c.setConversationConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +135,14 @@ func (m MediaConfig) String() string {
 	return fmt.Sprintf("MediaConfig{URL: %s}", m.URL)
 }
 
+func (u UserConfig) String() string {
+	return fmt.Sprintf("UserConfig{URL: %s}", u.URL)
+}
+
+func (c ConversationConfig) String() string {
+	return fmt.Sprintf("ConversationConfig{URL: %s}", c.URL)
+}
+
 func (d DatabaseConfig) String() string {
 	return fmt.Sprintf("DatabaseConfig{URL: %s}", d.URL)
 }
@@ -139,6 +165,8 @@ func (c Config) String() string {
 		fmt.Sprintf("DATABASE_CONFIG: %s", c.DatabaseConfig),
 		fmt.Sprintf("ID_GENERATOR_CONFIG: %s", c.IdGeneratorConfig),
 		fmt.Sprintf("MEDIA_CONFIG: %s", c.MediaConfig),
+		fmt.Sprintf("USER_CONFIG: %s", c.UserConfig),
+		fmt.Sprintf("CONVERSATION_CONFIG: %s", c.ConversationConfig),
 		fmt.Sprintf("KAFKA_CONFIG: %s", c.KafkaConfig),
 		fmt.Sprintf("OUTBOX_PROCESSOR_CONFIG: %s", c.OutboxProcessorConfig),
 	}
@@ -207,6 +235,28 @@ func (c *Config) setMediaConfig() error {
 	}
 
 	c.MediaConfig.URL = mediaUrl
+
+	return nil
+}
+
+func (c *Config) setUserConfig() error {
+	userUrl, has := os.LookupEnv("USER_SERVICE_URL")
+	if !has {
+		return fmt.Errorf("USER_SERVICE_URL not found")
+	}
+
+	c.UserConfig.URL = userUrl
+
+	return nil
+}
+
+func (c *Config) setConversationConfig() error {
+	conversationUrl, has := os.LookupEnv("CONVERSATION_SERVICE_URL")
+	if !has {
+		return fmt.Errorf("CONVERSATION_SERVICE_URL not found")
+	}
+
+	c.ConversationConfig.URL = conversationUrl
 
 	return nil
 }

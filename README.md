@@ -1,6 +1,6 @@
 # Message service
 
-Last updated: 2025-12-19
+Last updated: 2026-01-05
 
 # Table of Contents    
 
@@ -26,6 +26,8 @@ This service is responsible for managing media files, including uploading, proce
 | ID_GENERATOR_EPOCH | The epoch to use for the id generator service | No | 1672531200000 | int | any valid epoch in milliseconds |
 | ENVIRONMENT | The environment the service is running in | No | dev | string | dev, prod, test |
 | MEDIA_SERVICE_URL | The URL to the media service | Yes | | string | any valid URL |
+| CONVERSATION_SERVICE_URL | The URL to the conversation service | Yes | | string | any valid URL |
+| USER_SERVICE_URL | The URL to the user service | Yes | | string | any valid URL |
 | KAFKA_BROKERS | The addresses of the Kafka brokers | Yes | | string | comma-separated list of broker addresses (e.g. localhost:9092,localhost:9093) |
 | OUTBOX_CHECK_INTERVAL_MS | The interval in milliseconds to check the outbox for new messages | No | 500 | int | any valid integer |
 

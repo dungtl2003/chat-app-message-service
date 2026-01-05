@@ -4,9 +4,11 @@ import (
 	"dungtl2003/chat-app-message-service/internal/config"
 	"dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/logging"
+	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/idgen"
 	"dungtl2003/chat-app-message-service/internal/services/media"
+	"dungtl2003/chat-app-message-service/internal/services/user"
 )
 
 type HandlerDeps struct {
@@ -14,7 +16,9 @@ type HandlerDeps struct {
 	Logger    *logging.LoggerWrapper
 	Config    *config.Config
 
-	MediaService       media.MediaService
-	IdGeneratorService idgen.IdGeneratorService
-	DatabaseService    *database.DatabaseService
+	MediaService        media.MediaService
+	IdGeneratorService  idgen.IdGeneratorService
+	UserService         user.UserService
+	ConversationService conversation.ConversationService
+	DatabaseService     *database.DatabaseService
 }

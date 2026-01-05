@@ -34,6 +34,7 @@ type Message struct {
 	SenderId         types.JsonInt64     `json:"sender_id"`
 	ReceiverId       types.JsonInt64     `json:"receiver_id"`
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
+	Version          types.JsonInt64     `json:"version"`
 
 	Attachments    []Attachment `json:"attachments"`
 	IdempotencyKey string       `json:"idempotency_key"` // for deduplication at producer side (fast path)
