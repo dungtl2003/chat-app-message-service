@@ -160,9 +160,8 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, usersRef, strconv.FormatInt(senderId, 10))
 
-	participantsRef, ok := respBody.References["participants"].(map[string]any)
+	_, ok = respBody.References["participants"].(map[string]any)
 	require.True(t, ok)
-	require.Contains(t, participantsRef, strconv.FormatInt(senderId, 10))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

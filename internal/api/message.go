@@ -469,8 +469,9 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		references["users"] = userReferences
 
 		participantReferences := make(map[string]model.Participant)
-		for id, participant := range getParticipantsResp.ParticipantMap {
-			participantReferences[strconv.FormatInt(id, 10)] = participant
+		for _, participant := range getParticipantsResp.ParticipantMap {
+			// we need to map using participant ID as key, not user ID
+			participantReferences[strconv.FormatInt(participant.Id.Int64(), 10)] = participant
 		}
 		references["participants"] = participantReferences
 
