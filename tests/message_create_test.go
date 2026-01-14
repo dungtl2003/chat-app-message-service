@@ -6,7 +6,6 @@ import (
 	"dungtl2003/chat-app-message-service/internal/api"
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/server"
-	"dungtl2003/chat-app-message-service/internal/services"
 	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
 	"dungtl2003/chat-app-message-service/internal/services/kafka"
@@ -27,43 +26,6 @@ const (
 	USERS__MSG__CREATE_FILENAME = "chat_users__message__create_test.json"
 	CONVS__MSG__CREATE_FILENAME = "conversations__message__create_test.json"
 )
-
-type MockConversationService struct {
-	MockNameFunc             func() string
-	MockStatusFunc           func() services.ServiceStatus
-	MockCloseFunc            func() error
-	MockBatchGetParticipants func(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error)
-}
-
-func (m *MockConversationService) Name() string {
-	if m.MockNameFunc != nil {
-		return m.MockNameFunc()
-	}
-	return "Mock Conversation Service"
-}
-
-func (m *MockConversationService) Status() services.ServiceStatus {
-	if m.MockStatusFunc != nil {
-		return m.MockStatusFunc()
-	}
-	return services.ServiceReady
-}
-
-func (m *MockConversationService) Close() error {
-	if m.MockCloseFunc != nil {
-		return m.MockCloseFunc()
-	}
-	return nil
-}
-
-func (m *MockConversationService) BatchGetParticipants(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error) {
-	if m.MockBatchGetParticipants != nil {
-		return m.MockBatchGetParticipants(req)
-	}
-	return &conversation.BatchGetParticipantsResponse{
-		ParticipantMap: map[int64]model.Participant{},
-	}, nil
-}
 
 func TestMessageCreateFlowShouldWork(t *testing.T) {
 	helper := NewTestHelper()
@@ -91,7 +53,10 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 					}, nil
 				},
 			},
-			ConversationService: &MockConversationService{
+			ConversationService: &conversation.MockConversationService{
+				MockIsParticipantFunc: func(conversationID, participantID int64, internalToken string) (bool, error) {
+					return true, nil
+				},
 				MockBatchGetParticipants: func(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error) {
 					participants, err := helper.AdminDatabaseService.GetParticipantsByConversationIdAndUserIds(t.Context(), req.ConversationID, req.UserIDs)
 					require.NoError(t, err)

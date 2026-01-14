@@ -293,6 +293,25 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			panic(fmt.Sprintf("middleware.GetToken(): %v. Might be missing AuthMiddleware?", err))
 		}
 
+		tokenClaims, err := middleware.GetTokenClaim(c)
+		if err != nil {
+			panic(fmt.Sprintf("middleware.GetTokenClaim(): %v. Might be missing AuthMiddleware?", err))
+		}
+		userId, err := middleware.GetUserId(*tokenClaims)
+		if err != nil {
+			handlerDeps.Logger.Errorfln("middleware.GetUserId(): %v", err)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusInternalServerError,
+				Message: "Internal server error",
+				Errors: []types.ErrorItem{
+					{Message: "Internal server error"},
+				},
+			}
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
 		var reqBody MessagePostRequestBody
 		if err := c.ShouldBindJSON(&reqBody); err != nil {
 			handlerDeps.Logger.Errorfln("c.ShouldBindJSON(): %v", err)
@@ -323,6 +342,35 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 		handlerDeps.Logger.Debugfln("request body: %s", reqBody)
+
+		isParticipant, err := handlerDeps.ConversationService.IsParticipant(reqBody.ReceiverId.Int64(), userId, token)
+		if err != nil {
+			handlerDeps.Logger.Errorfln("ConversationService.IsParticipant(): %v", err)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusInternalServerError,
+				Message: "Internal server error",
+				Errors: []types.ErrorItem{{
+					Message: "Internal server error",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		if !isParticipant {
+			handlerDeps.Logger.Warnfln("User %d is not a participant of conversation %d", userId, reqBody.ReceiverId.Int64())
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusForbidden,
+				Message: "User is not a participant of this conversation",
+				Errors: []types.ErrorItem{{
+					Message: "User is not a participant of this conversation",
+				}},
+			}
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
 
 		timeoutContext, cancel := ctx.WithTimeout(c, 5*time.Second)
 		defer cancel()
@@ -400,7 +448,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			Attachments:      []model.Attachment{}, // add real attachments later
 			ReplyToMessageId: reqBody.ReplyToMessageId,
 		}
-		handlerDeps.Logger.Debugfln("message: %s", message)
+		// handlerDeps.Logger.Debugfln("message: %s", message)
 
 		msg, err := handlerDeps.DatabaseService.CreateMessage(
 			c,
@@ -423,8 +471,10 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 
+		referenceUserIds := []int64{userId} // add sender user ID
+
 		getUsersResp, err := handlerDeps.UserService.GetUsers(&user.GetUsersRequest{
-			UserIDs:       []int64{reqBody.SenderId.Int64()},
+			UserIDs:       referenceUserIds,
 			InternalToken: token,
 		})
 		if err != nil {
@@ -443,7 +493,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 
 		getParticipantsResp, err := handlerDeps.ConversationService.BatchGetParticipants(&conversation.BatchGetParticipantsRequest{
 			ConversationID: reqBody.ReceiverId.Int64(),
-			UserIDs:        []int64{reqBody.SenderId.Int64()},
+			UserIDs:        referenceUserIds,
 			InternalToken:  token,
 		})
 		if err != nil {

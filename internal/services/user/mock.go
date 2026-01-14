@@ -6,10 +6,11 @@ import (
 )
 
 type MockUserService struct {
-	MockNameFunc   func() string
-	MockStatusFunc func() services.ServiceStatus
-	MockCloseFunc  func() error
-	MockGetUsers   func(req *GetUsersRequest) (*GetUsersResponse, error)
+	MockNameFunc      func() string
+	MockStatusFunc    func() services.ServiceStatus
+	MockCloseFunc     func() error
+	MockGetUsers      func(req *GetUsersRequest) (*GetUsersResponse, error)
+	MockIsParticipant func(conversationID, participantID int64, internalToken string) (bool, error)
 }
 
 func (m *MockUserService) Name() string {
@@ -45,4 +46,12 @@ func (m *MockUserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, err
 	return &GetUsersResponse{
 		UserMap: map[int64]model.ChatUser{},
 	}, nil
+}
+
+func (m *MockUserService) IsParticipant(conversationID, participantID int64, internalToken string) (bool, error) {
+	if m.MockIsParticipant != nil {
+		return m.MockIsParticipant(conversationID, participantID, internalToken)
+	}
+
+	return false, nil
 }

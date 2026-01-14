@@ -145,6 +145,54 @@ func (s *ConversationServiceV1) BatchGetParticipants(req *BatchGetParticipantsRe
 	}, nil
 }
 
+func (s *ConversationServiceV1) IsParticipant(conversationID, participantID int64, internalToken string) (bool, error) {
+	type ResponseBody struct {
+		IsMember bool `json:"is_member"`
+	}
+
+	if s.status == services.ServiceStopped {
+		return false, services.ServiceNotRunningError{ServiceName: s.Name()}
+	}
+	if s.status != services.ServiceReady {
+		s.logger.Warnfln("[%s] Service is not ready", s.Name())
+	}
+
+	headers := http.Header{
+		"Content-Type":  {"application/json"},
+		"Authorization": {fmt.Sprintf("Bearer %s", internalToken)},
+	}
+	url := fmt.Sprintf("%s/conversations/%d/participants/%d/membership", s.conversationAPIEndpoint, conversationID, participantID)
+	method := http.MethodGet
+
+	reqHTTP, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		s.logger.Errorfln("[%s] Failed to create %s request: %v", s.Name(), method, err)
+		return false, err
+	}
+	reqHTTP.Header = headers
+
+	s.logger.Debugfln("[%s] Sending %s request to %s with headers: %v", s.Name(), method, reqHTTP.URL, reqHTTP.Header)
+	resp, err := s.client.Do(reqHTTP)
+	if err != nil {
+		s.logger.Errorfln("[%s] Failed to send %s request: %v", s.Name(), method, err)
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	var respBody types.Response[ResponseBody]
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		s.logger.Errorfln("[%s] Failed to decode response body: %v", s.Name(), err)
+		return false, err
+	}
+	if respBody.Error != nil {
+		s.logger.Errorfln("[%s] Received error response: %v", s.Name(), respBody.Error)
+		return false, BadResponseError{ErrBlock: *respBody.Error}
+	}
+
+	s.logger.Infofln("[%s] Successfully retrieved participant status for conversation %d and participant %d: %v", s.Name(), conversationID, participantID, respBody.Data.Item.IsMember)
+	return respBody.Data.Item.IsMember, nil
+}
+
 // Status checks the health of the service by making a request to the
 // healthcheck endpoint. It returns the service status based on the response.
 func (s *ConversationServiceV1) Status() services.ServiceStatus {

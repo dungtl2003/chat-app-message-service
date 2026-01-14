@@ -37,4 +37,5 @@ type BatchGetParticipantsResponse struct {
 type ConversationService interface {
 	services.Service
 	BatchGetParticipants(req *BatchGetParticipantsRequest) (*BatchGetParticipantsResponse, error)
+	IsParticipant(conversationID, participantID int64, internalToken string) (bool, error)
 }
