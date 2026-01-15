@@ -343,7 +343,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		}
 		handlerDeps.Logger.Debugfln("request body: %s", reqBody)
 
-		isParticipant, err := handlerDeps.ConversationService.IsParticipant(reqBody.ReceiverId.Int64(), userId, token)
+		isParticipant, err := handlerDeps.ConversationService.IsParticipant(reqBody.ReceiverId.Int64(), reqBody.SenderId.Int64(), token)
 		if err != nil {
 			handlerDeps.Logger.Errorfln("ConversationService.IsParticipant(): %v", err)
 			resp.Error = &types.ErrorBlock{
