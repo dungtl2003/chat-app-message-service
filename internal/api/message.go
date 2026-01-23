@@ -1,7 +1,6 @@
 package api
 
 import (
-	ctx "context"
 	"dungtl2003/chat-app-message-service/internal/helper"
 	"dungtl2003/chat-app-message-service/internal/middleware"
 	"dungtl2003/chat-app-message-service/internal/model"
@@ -372,9 +371,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		timeoutContext, cancel := ctx.WithTimeout(c, 5*time.Second)
-		defer cancel()
-		messageId, err := handlerDeps.IdGeneratorService.GenerateId(timeoutContext)
+		messageId, err := handlerDeps.IdGeneratorService.GenerateId(c)
 		if err != nil {
 			handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
 			resp.Error = &types.ErrorBlock{
@@ -389,7 +386,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		conversationEventId, err := handlerDeps.IdGeneratorService.GenerateId(timeoutContext)
+		conversationEventId, err := handlerDeps.IdGeneratorService.GenerateId(c)
 		if err != nil {
 			handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
 			resp.Error = &types.ErrorBlock{
@@ -408,34 +405,32 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		messageCreatedAtTimestamp := helper.ExtractTimestampFromSnowflake(messageId, handlerDeps.Config.IdGeneratorConfig.Epoch)
 		messageCreatedAt := types.NewJsonTimeFromMillisTimestamp(messageCreatedAtTimestamp)
 
-		// TODO: process attachments
-		// attachments := make([]model.Attachment, len(reqBody.Attachments))
-		// for i, attachment := range reqBody.Attachments {
-		// 	timeoutContext, cancel := ctx.WithTimeout(c, 5*time.Second)
-		// 	defer cancel()
-		// 	attachmentId, err := handlerDeps.IdGeneratorService.GenerateId(timeoutContext)
-		// 	if err != nil {
-		// 		handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
-		// 		resp.Error = &types.ErrorBlock{
-		// 			Code:    http.StatusInternalServerError,
-		// 			Message: "Internal server error",
-		// 			Errors: []types.ErrorItem{{
-		// 				Message: "Internal server error",
-		// 			}},
-		// 		}
-		//
-		// 		c.JSON(resp.Error.Code, resp)
-		// 		c.Abort()
-		// 		return
-		// 	}
-		// 	attachments[i] = model.Attachment{
-		// 		Id:        types.NewJsonInt64(attachmentId),
-		// 		AssetId:   attachment.AssetId,
-		// 		MessageId: types.NewJsonInt64(messageId),
-		// 		Position:  attachment.Position,
-		// 		Type:      attachment.Type,
-		// 	}
-		// }
+		attachments := make([]model.Attachment, len(reqBody.Attachments))
+		for i, attachment := range reqBody.Attachments {
+			attachmentId, err := handlerDeps.IdGeneratorService.GenerateId(c)
+			if err != nil {
+				handlerDeps.Logger.Errorfln("IdGeneratorService.GenerateId(): %v", err)
+				resp.Error = &types.ErrorBlock{
+					Code:    http.StatusInternalServerError,
+					Message: "Internal server error",
+					Errors: []types.ErrorItem{{
+						Message: "Internal server error",
+					}},
+				}
+
+				c.JSON(resp.Error.Code, resp)
+				c.Abort()
+				return
+			}
+
+			attachments[i] = model.Attachment{
+				Id:        types.NewJsonInt64(attachmentId),
+				AssetId:   attachment.AssetId.Dereference(),
+				MessageId: types.NewJsonInt64(messageId),
+				Position:  attachment.Position,
+				Type:      attachment.Type,
+			}
+		}
 
 		message := model.Message{
 			Id:               types.NewJsonInt64(messageId),
@@ -445,7 +440,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			UpdatedAt:        messageCreatedAt,
 			SenderId:         *reqBody.SenderId,
 			ReceiverId:       *reqBody.ReceiverId,
-			Attachments:      []model.Attachment{}, // add real attachments later
+			Attachments:      attachments,
 			ReplyToMessageId: reqBody.ReplyToMessageId,
 		}
 		// handlerDeps.Logger.Debugfln("message: %s", message)
