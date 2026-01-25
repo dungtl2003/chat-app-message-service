@@ -26,7 +26,7 @@ type AttachmentPostRequestBody struct {
 type MessagePostRequestBody struct {
 	SenderId         *types.JsonInt64    `json:"sender_id" validate:"required"`
 	ReceiverId       *types.JsonInt64    `json:"receiver_id" validate:"required"`
-	Content          string              `json:"content" validate:"required"`
+	Content          string              `json:"content"`
 	Type             model.MessageType   `json:"type" validate:"required"`
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
 	IdempotencyKey   string              `json:"idempotency_key"`
