@@ -21,6 +21,8 @@ type AttachmentPostRequestBody struct {
 	AssetId  *types.JsonInt64     `json:"asset_id" validate:"required"`
 	Position int                  `json:"position" validate:"required"`
 	Type     model.AttachmentType `json:"type" validate:"required,oneof=IMAGE VIDEO AUDIO FILE GIF STICKER"`
+
+	Asset *model.Asset `json:"asset"`
 }
 
 type MessagePostRequestBody struct {
@@ -31,7 +33,7 @@ type MessagePostRequestBody struct {
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
 	IdempotencyKey   string              `json:"idempotency_key"`
 
-	Attachments []model.Attachment `json:"attachments"`
+	Attachments []AttachmentPostRequestBody `json:"attachments"`
 }
 
 func (a AttachmentPostRequestBody) String() string {
@@ -426,7 +428,7 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 
 			attachments[i] = model.Attachment{
 				Id:        types.NewJsonInt64(attachmentId),
-				AssetId:   attachment.AssetId,
+				AssetId:   attachment.AssetId.Dereference(),
 				MessageId: types.NewJsonInt64(messageId),
 				Position:  attachment.Position,
 				Type:      attachment.Type,

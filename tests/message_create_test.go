@@ -113,15 +113,15 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 		Content:        "Hello from user 4 to user 2",
 		Type:           model.MSG_TEXT,
 		IdempotencyKey: "unique-key-12345",
-		Attachments: []model.Attachment{
+		Attachments: []api.AttachmentPostRequestBody{
 			{
-				AssetId:  types.NewJsonInt64(firstAsset.Id.Int64()),
+				AssetId:  types.NewJsonInt64(firstAsset.Id.Int64()).ToPtr(),
 				Position: 1,
 				Type:     model.ATT_IMAGE,
 				Asset:    &firstAsset,
 			},
 			{
-				AssetId:  types.NewJsonInt64(secondAsset.Id.Int64()),
+				AssetId:  types.NewJsonInt64(secondAsset.Id.Int64()).ToPtr(),
 				Position: 2,
 				Type:     model.ATT_IMAGE,
 				Asset:    &secondAsset,
