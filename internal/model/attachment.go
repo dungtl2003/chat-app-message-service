@@ -23,6 +23,8 @@ type Attachment struct {
 	MessageId types.JsonInt64    `json:"message_id"`
 	Position  int                `json:"position"`
 	Type      AttachmentType     `json:"type"`
+
+	Asset *Asset `json:"asset,omitempty"`
 }
 
 func (a Attachment) String() string {

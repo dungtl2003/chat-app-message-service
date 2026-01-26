@@ -336,6 +336,19 @@ func (d *DatabaseService) CreateMessage(
 		return nil, err
 	}
 
+	// Attach asset objects from the input message parameter to the resulting message
+	assetMap := make(map[int64]*model.Asset)
+	for _, att := range message.Attachments {
+		if att.Asset != nil {
+			assetMap[att.AssetId.Int64()] = att.Asset
+		}
+	}
+	for i := range msg.Attachments {
+		if asset, ok := assetMap[msg.Attachments[i].AssetId.Int64()]; ok {
+			msg.Attachments[i].Asset = asset
+		}
+	}
+
 	payloadData := model.MessageOutboxPayload{
 		Message:        msg,
 		IdempotencyKey: idempotencyKey,

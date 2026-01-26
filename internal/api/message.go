@@ -31,7 +31,7 @@ type MessagePostRequestBody struct {
 	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
 	IdempotencyKey   string              `json:"idempotency_key"`
 
-	Attachments []AttachmentPostRequestBody `json:"attachments"`
+	Attachments []model.Attachment `json:"attachments"`
 }
 
 func (a AttachmentPostRequestBody) String() string {
@@ -214,6 +214,7 @@ func GetMessagesByConvID(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		resp.Data.Page = &types.Page[model.Message]{
 			Items: messages,
 		}
+
 		resp.Data.Page.CurrentItemCount = types.NewJsonNullInt64(int64(len(messages)))
 		resp.Data.Page.EndCursor = fmt.Sprintf("%d", cursor)
 		resp.Data.Page.HasMore = hasMore
@@ -425,10 +426,11 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 
 			attachments[i] = model.Attachment{
 				Id:        types.NewJsonInt64(attachmentId),
-				AssetId:   attachment.AssetId.Dereference(),
+				AssetId:   attachment.AssetId,
 				MessageId: types.NewJsonInt64(messageId),
 				Position:  attachment.Position,
 				Type:      attachment.Type,
+				Asset:     attachment.Asset,
 			}
 		}
 

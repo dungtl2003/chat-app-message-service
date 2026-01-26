@@ -113,16 +113,18 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 		Content:        "Hello from user 4 to user 2",
 		Type:           model.MSG_TEXT,
 		IdempotencyKey: "unique-key-12345",
-		Attachments: []api.AttachmentPostRequestBody{
+		Attachments: []model.Attachment{
 			{
-				AssetId:  types.NewJsonInt64(firstAsset.Id.Int64()).ToPtr(),
+				AssetId:  types.NewJsonInt64(firstAsset.Id.Int64()),
 				Position: 1,
 				Type:     model.ATT_IMAGE,
+				Asset:    &firstAsset,
 			},
 			{
-				AssetId:  types.NewJsonInt64(secondAsset.Id.Int64()).ToPtr(),
+				AssetId:  types.NewJsonInt64(secondAsset.Id.Int64()),
 				Position: 2,
 				Type:     model.ATT_IMAGE,
+				Asset:    &secondAsset,
 			},
 		},
 	}
@@ -157,6 +159,12 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	require.Contains(t, respAttachmentMap, secondAsset.Id.Int64())
 	require.Equal(t, 1, respAttachmentMap[firstAsset.Id.Int64()].Position)
 	require.Equal(t, 2, respAttachmentMap[secondAsset.Id.Int64()].Position)
+
+	// Verify Asset object
+	require.NotNil(t, respAttachmentMap[firstAsset.Id.Int64()].Asset)
+	require.Equal(t, firstAsset.Id.Int64(), respAttachmentMap[firstAsset.Id.Int64()].Asset.Id.Int64())
+	require.NotNil(t, respAttachmentMap[secondAsset.Id.Int64()].Asset)
+	require.Equal(t, secondAsset.Id.Int64(), respAttachmentMap[secondAsset.Id.Int64()].Asset.Id.Int64())
 
 	// Verify References
 	require.NotNil(t, respBody.References)
