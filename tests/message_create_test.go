@@ -212,4 +212,27 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 		}
 		return outboxEvent.Status == model.OUTBOX_SENT
 	}, 10*time.Second, 100*time.Millisecond, "outbox event should be processed after commit")
+
+	// Verify outbox payload contains asset objects
+	outboxEvent, err := helper.AdminDatabaseService.GetOutboxEventById(context.Background(), event.OutboxId.Int64())
+	require.NoError(t, err)
+	require.NotNil(t, outboxEvent)
+
+	var payload model.MessageOutboxPayload
+	err = json.Unmarshal(outboxEvent.Payload.RawMessage, &payload)
+	require.NoError(t, err)
+
+	require.Len(t, payload.Message.Attachments, 2)
+	payloadAttachmentMap := make(map[int64]model.Attachment)
+	for _, att := range payload.Message.Attachments {
+		payloadAttachmentMap[att.AssetId.Int64()] = att
+	}
+
+	require.Contains(t, payloadAttachmentMap, firstAsset.Id.Int64())
+	require.NotNil(t, payloadAttachmentMap[firstAsset.Id.Int64()].Asset)
+	require.Equal(t, firstAsset.Id.Int64(), payloadAttachmentMap[firstAsset.Id.Int64()].Asset.Id.Int64())
+
+	require.Contains(t, payloadAttachmentMap, secondAsset.Id.Int64())
+	require.NotNil(t, payloadAttachmentMap[secondAsset.Id.Int64()].Asset)
+	require.Equal(t, secondAsset.Id.Int64(), payloadAttachmentMap[secondAsset.Id.Int64()].Asset.Id.Int64())
 }
