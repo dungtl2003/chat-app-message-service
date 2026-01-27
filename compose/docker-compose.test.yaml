@@ -256,6 +256,7 @@ services:
         asset-resource-delete:3:3
         participant-resource-update:3:3
         message-resource-created:3:3
+        asset-resource-confirm:3:3
       BOOTSTRAP: broker-1:19092
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/topics-created"]

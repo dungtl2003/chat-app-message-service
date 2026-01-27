@@ -99,6 +99,14 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 	})
 	defer reader.Close()
 
+	readerAssetConfirm := gokafka.NewReader(gokafka.ReaderConfig{
+		Brokers:     []string{helper.BrokerAddr},
+		Topic:       string(kafka.ASSET_RESOURCE_CONFIRM_TOPIC),
+		GroupID:     KAFKA_GROUP_ID + "-asset",
+		StartOffset: gokafka.FirstOffset,
+	})
+	defer readerAssetConfirm.Close()
+
 	senderId := int64(4) // user 4 in group 2
 	receiverId := int64(2)
 	internalToken := GetInternalAccessToken(senderId)
@@ -201,6 +209,25 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 
 	err = reader.CommitMessages(context.Background(), msg)
 	require.NoError(t, err)
+
+	// Verify Asset Confirm Events
+	confirmedAssets := make(map[int64]bool)
+	for range 2 {
+		msg, err := readerAssetConfirm.FetchMessage(ctx)
+		require.NoError(t, err, "failed to fetch asset confirm message")
+
+		var event kafka.AssetResourceConfirmEvent
+		err = json.Unmarshal(msg.Value, &event)
+		require.NoError(t, err)
+
+		confirmedAssets[event.AssetId.Int64()] = true
+
+		err = readerAssetConfirm.CommitMessages(context.Background(), msg)
+		require.NoError(t, err)
+	}
+
+	require.True(t, confirmedAssets[firstAsset.Id.Int64()], "first asset should be confirmed")
+	require.True(t, confirmedAssets[secondAsset.Id.Int64()], "second asset should be confirmed")
 
 	// Check the outbox event status after commit
 	// It should be SENT

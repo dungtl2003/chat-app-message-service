@@ -133,6 +133,7 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 
 	dlqChan := make(chan kafka.KMessage[kafka.DLQEvent], 100)
 	msgChan := make(chan kafka.KMessage[kafka.MessageResourceCreatedEvent], 100)
+	assetConfirmChan := make(chan kafka.KMessage[kafka.AssetResourceConfirmEvent], 100)
 
 	loggerWrapper.Infofln("Creating Kafka producer service")
 	kafkaProducerService, err := kafka.NewKafkaProducer(
@@ -161,6 +162,14 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 		forwarder.Start(ctx)
 	})
 	s.workers = append(s.workers, func(ctx context.Context) {
+		forwarder := &workers.Forwarder[kafka.AssetResourceConfirmEvent]{
+			Producer: kafkaProducerService,
+			Source:   assetConfirmChan,
+			Logger:   loggerWrapper,
+		}
+		forwarder.Start(ctx)
+	})
+	s.workers = append(s.workers, func(ctx context.Context) {
 		processor := &workers.OutboxProcessor{
 			DB:                  databaseService,
 			Logger:              loggerWrapper,
@@ -172,13 +181,14 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 
 	loggerWrapper.Info("Creating application context")
 	handlerDeps := &api.HandlerDeps{
-		IdGeneratorService:  idGeneratorService,
-		Validator:           validator,
-		Logger:              loggerWrapper,
-		DatabaseService:     databaseService,
-		Config:              config,
-		UserService:         userService,
-		ConversationService: conversationService,
+		IdGeneratorService:       idGeneratorService,
+		Validator:                validator,
+		Logger:                   loggerWrapper,
+		DatabaseService:          databaseService,
+		Config:                   config,
+		UserService:              userService,
+		ConversationService:      conversationService,
+		AssetConfirmEventChannel: assetConfirmChan,
 	}
 
 	services := []services.Service{

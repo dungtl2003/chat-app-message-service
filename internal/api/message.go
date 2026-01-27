@@ -6,6 +6,7 @@ import (
 	"dungtl2003/chat-app-message-service/internal/model"
 	"dungtl2003/chat-app-message-service/internal/services/conversation"
 	"dungtl2003/chat-app-message-service/internal/services/database"
+	"dungtl2003/chat-app-message-service/internal/services/kafka"
 	"dungtl2003/chat-app-message-service/internal/services/user"
 	"dungtl2003/chat-app-message-service/internal/types"
 	"encoding/json"
@@ -528,6 +529,16 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 
 		resp.Data = &types.DataOrPage[model.Message]{}
 		resp.Data.Item = msg
+
+		for _, att := range message.Attachments {
+			handlerDeps.AssetConfirmEventChannel <- kafka.KMessage[kafka.AssetResourceConfirmEvent]{
+				Topic: kafka.Topic(kafka.ASSET_RESOURCE_CONFIRM_TOPIC),
+				Key:   strconv.FormatInt(att.AssetId.Int64(), 10),
+				Value: kafka.AssetResourceConfirmEvent{
+					AssetId: att.AssetId,
+				},
+			}
+		}
 
 		c.JSON(http.StatusCreated, resp)
 		c.Abort()

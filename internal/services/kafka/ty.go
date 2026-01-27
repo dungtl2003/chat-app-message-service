@@ -13,6 +13,7 @@ import (
 const (
 	ConsumerGroupID                      = "chat-app-message-service-consumer-group"
 	MESSAGE_RESOURCE_CREATED_TOPIC Topic = "message-resource-created"
+	ASSET_RESOURCE_CONFIRM_TOPIC   Topic = "asset-resource-confirm"
 )
 
 type Topic string
@@ -49,8 +50,22 @@ func (e MessageResourceCreatedEvent) ToJson() []byte {
 	return data
 }
 
+type AssetResourceConfirmEvent struct {
+	AssetId types.JsonInt64 `json:"asset_id"`
+}
+
+func (e AssetResourceConfirmEvent) ToJson() []byte {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 type KEvent interface {
-	DLQEvent | MessageResourceCreatedEvent
+	DLQEvent | MessageResourceCreatedEvent |
+		AssetResourceConfirmEvent
+
 	ToJson() []byte
 }
 
