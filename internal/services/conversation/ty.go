@@ -26,7 +26,7 @@ func (e BadResponseError) Error() string {
 
 type BatchGetParticipantsRequest struct {
 	ConversationID int64   `json:"conversation_id"`
-	UserIDs        []int64 `json:"user_ids"`
+	ParticipantIDs []int64 `json:"participant_ids"`
 	InternalToken  string  `json:"internal_token"`
 }
 

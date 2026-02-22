@@ -71,8 +71,7 @@ func NewConversationServiceV1(conversationAPIEndpoint string, opts *Conversation
 
 func (s *ConversationServiceV1) BatchGetParticipants(req *BatchGetParticipantsRequest) (*BatchGetParticipantsResponse, error) {
 	type RequestBody struct {
-		ConversationID types.JsonInt64   `json:"conversation_id"`
-		UserIDs        []types.JsonInt64 `json:"user_ids"`
+		ParticipantIDs []types.JsonInt64 `json:"participant_ids"`
 	}
 	type ResponseBody struct {
 		ParticipantMap map[string]model.Participant `json:"participant_map"`
@@ -89,14 +88,13 @@ func (s *ConversationServiceV1) BatchGetParticipants(req *BatchGetParticipantsRe
 		"Content-Type":  {"application/json"},
 		"Authorization": {fmt.Sprintf("Bearer %s", req.InternalToken)},
 	}
-	url := fmt.Sprintf("%s/conversations/participants/batch-get", s.conversationAPIEndpoint)
+	url := fmt.Sprintf("%s/conversations/%d/participants/batch-get", s.conversationAPIEndpoint, req.ConversationID)
 	method := http.MethodPost
 	body := RequestBody{
-		ConversationID: types.NewJsonInt64(req.ConversationID),
-		UserIDs:        make([]types.JsonInt64, len(req.UserIDs)),
+		ParticipantIDs: make([]types.JsonInt64, len(req.ParticipantIDs)),
 	}
-	for i, id := range req.UserIDs {
-		body.UserIDs[i] = types.NewJsonInt64(id)
+	for i, id := range req.ParticipantIDs {
+		body.ParticipantIDs[i] = types.NewJsonInt64(id)
 	}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {

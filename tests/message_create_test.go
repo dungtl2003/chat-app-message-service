@@ -61,7 +61,7 @@ func TestMessageCreateFlowShouldWork(t *testing.T) {
 					return true, nil
 				},
 				MockBatchGetParticipants: func(req *conversation.BatchGetParticipantsRequest) (*conversation.BatchGetParticipantsResponse, error) {
-					participants, err := helper.AdminDatabaseService.GetParticipantsByConversationIdAndUserIds(t.Context(), req.ConversationID, req.UserIDs)
+					participants, err := helper.AdminDatabaseService.GetParticipantsByConversationIdAndUserIds(t.Context(), req.ConversationID, req.ParticipantIDs)
 					require.NoError(t, err)
 
 					participantMap := make(map[int64]model.Participant)

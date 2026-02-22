@@ -471,7 +471,8 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		referenceUserIds := []int64{userId} // add sender user ID
+		referenceUserIds := []int64{userId}                          // add sender user ID
+		referenceParticipantIds := []int64{message.SenderId.Int64()} // add sender participant ID
 
 		getUsersResp, err := handlerDeps.UserService.GetUsers(&user.GetUsersRequest{
 			UserIDs:       referenceUserIds,
@@ -491,11 +492,13 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		getParticipantsResp, err := handlerDeps.ConversationService.BatchGetParticipants(&conversation.BatchGetParticipantsRequest{
-			ConversationID: reqBody.ReceiverId.Int64(),
-			UserIDs:        referenceUserIds,
-			InternalToken:  token,
-		})
+		getParticipantsResp, err := handlerDeps.ConversationService.BatchGetParticipants(
+			&conversation.BatchGetParticipantsRequest{
+				ConversationID: reqBody.ReceiverId.Int64(),
+				ParticipantIDs: referenceParticipantIds,
+				InternalToken:  token,
+			},
+		)
 		if err != nil {
 			handlerDeps.Logger.Errorfln("ConversationService.BatchGetParticipants(): %v", err)
 			resp.Error = &types.ErrorBlock{
