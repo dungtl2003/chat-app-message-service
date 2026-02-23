@@ -14,8 +14,13 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	MAX_MESSAGE_CONTENT_LENGTH = 10000
 )
 
 type AttachmentPostRequestBody struct {
@@ -337,6 +342,21 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 				Message: "Invalid request body",
 				Errors: []types.ErrorItem{{
 					Message: "Invalid request body",
+				}},
+			}
+
+			c.JSON(resp.Error.Code, resp)
+			c.Abort()
+			return
+		}
+
+		if utf8.RuneCountInString(reqBody.Content) > MAX_MESSAGE_CONTENT_LENGTH {
+			handlerDeps.Logger.Errorfln("message content length exceeds maximum: %d > %d", utf8.RuneCountInString(reqBody.Content), MAX_MESSAGE_CONTENT_LENGTH)
+			resp.Error = &types.ErrorBlock{
+				Code:    http.StatusBadRequest,
+				Message: fmt.Sprintf("Message content length cannot exceed %d characters", MAX_MESSAGE_CONTENT_LENGTH),
+				Errors: []types.ErrorItem{{
+					Message: fmt.Sprintf("Message content length cannot exceed %d characters", MAX_MESSAGE_CONTENT_LENGTH),
 				}},
 			}
 
