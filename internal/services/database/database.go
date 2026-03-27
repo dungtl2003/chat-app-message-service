@@ -30,9 +30,10 @@ var (
 )
 
 type DatabaseService struct {
-	client *sql.DB
-	logger *logging.LoggerWrapper
-	status services.ServiceStatus
+	client         *sql.DB
+	readOnlyClient *sql.DB
+	logger         *logging.LoggerWrapper
+	status         services.ServiceStatus
 }
 
 func (d *DatabaseService) Name() string {
@@ -48,6 +49,16 @@ func (d *DatabaseService) Status() services.ServiceStatus {
 		} else {
 			d.status = services.ServiceReady
 		}
+
+		// if read-only client is different from main client, check if it's alive as well
+		if d.readOnlyClient != d.client {
+			if err := d.readOnlyClient.Ping(); err != nil {
+				d.logger.Errorfln("[%s] Read database connection is not alive: %v", d.Name(), err)
+				d.status = services.ServiceError
+			} else {
+				d.status = services.ServiceReady
+			}
+		}
 	}
 
 	return d.status
@@ -55,16 +66,28 @@ func (d *DatabaseService) Status() services.ServiceStatus {
 
 // New creates a new database connection. The function returns a database
 // connection and an error. Remember to call Close() when done to release resources.
-func New(url string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
+func New(url string, readUrl string, logger *logging.LoggerWrapper) (*DatabaseService, error) {
 	client, err := sql.Open("postgres", url)
 	if err != nil {
 		return nil, err
 	}
 
+	var readOnlyClient *sql.DB
+	if readUrl == url {
+		logger.Warnfln("readonly database URL is the same as the main database URL, using the same connection for both")
+		readOnlyClient = client
+	} else {
+		readOnlyClient, err = sql.Open("postgres", readUrl)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	d := &DatabaseService{
-		client: client,
-		logger: logger,
-		status: services.ServiceReady,
+		client:         client,
+		readOnlyClient: readOnlyClient,
+		logger:         logger,
+		status:         services.ServiceReady,
 	}
 
 	d.logger.Infofln("[%s] Database connection created", d.Name())
@@ -135,7 +158,7 @@ func (d *DatabaseService) FetchPendingOutboxEvents(
 	args := []any{model.OUTBOX_PENDING, limit}
 
 	// d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
-	rows, err := d.client.QueryContext(ctx, query, args...)
+	rows, err := d.readOnlyClient.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +474,7 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 	`, strings.Join(whereClauses, " AND "), limitPart)
 
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
-	messageRows, err := d.client.Query(query, args...)
+	messageRows, err := d.readOnlyClient.Query(query, args...)
 	if err != nil {
 		d.logger.Errorfln("client.Exec(): %v", err)
 		return 0, nil, false, ErrDatabaseError
@@ -530,7 +553,7 @@ func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	var msg model.Message
 	var rawAttachments json.RawMessage
-	messageRow := d.client.QueryRow(query, args...)
+	messageRow := d.readOnlyClient.QueryRow(query, args...)
 	err := messageRow.Scan(
 		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &msg.ReplyToMessageId,
 		&rawAttachments)
@@ -570,7 +593,7 @@ func (d *DatabaseService) GetOutboxEventById(ctx context.Context, id int64) (*mo
 	args := []any{id}
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	var e model.MessageOutbox
-	err := d.client.QueryRowContext(ctx, query, args...).Scan(
+	err := d.readOnlyClient.QueryRowContext(ctx, query, args...).Scan(
 		&e.Id,
 		&e.MessageId,
 		&e.ConversationId,
@@ -628,9 +651,9 @@ func (d *DatabaseService) GetUsersByIds(
 	WHERE u.id = ANY($1) AND u.deleted_at IS NULL;`
 	args := []any{pq.Array(userIds)}
 	d.logger.Debugfln("query: %s --- args: %v", helper.StripWS(query), args)
-	rows, err := d.client.QueryContext(ctx, query, args...)
+	rows, err := d.readOnlyClient.QueryContext(ctx, query, args...)
 	if err != nil {
-		d.logger.Errorfln("client.QueryContext(): %v", err)
+		d.logger.Errorfln("readOnlyClient.QueryContext(): %v", err)
 		return nil, ErrDatabaseError
 	}
 	defer rows.Close()
@@ -693,9 +716,9 @@ func (d *DatabaseService) GetParticipantsByConversationIdAndUserIds(
 	args := []any{conversationId, pq.Array(userIds)}
 
 	d.logger.Debugfln("query: %s --- args: %v", helper.StripWS(query), args)
-	rows, err := d.client.QueryContext(ctx, query, args...)
+	rows, err := d.readOnlyClient.QueryContext(ctx, query, args...)
 	if err != nil {
-		d.logger.Errorfln("client.QueryContext(): %v", err)
+		d.logger.Errorfln("readOnlyClient.QueryContext(): %v", err)
 		return nil, ErrDatabaseError
 	}
 	defer rows.Close()
@@ -737,7 +760,7 @@ func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 		d.logger.Warnfln("[%s] Database is not ready", d.Name())
 	}
 
-	messageRows, err := d.client.Query(`
+	messageRows, err := d.readOnlyClient.Query(`
 		SELECT
 			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
 		    COALESCE(

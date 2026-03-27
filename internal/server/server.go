@@ -79,7 +79,7 @@ func New(opts *MessageServerOptions) (*MessageServer, error) {
 	validator := helper.NewValidator()
 
 	loggerWrapper.Info("Creating database service")
-	databaseService, err := database.New(config.DatabaseConfig.URL, loggerWrapper)
+	databaseService, err := database.New(config.DatabaseConfig.URL, config.DatabaseConfig.ReadURL, loggerWrapper)
 	if err != nil {
 		return nil, fmt.Errorf("error when creating database service: %w", err)
 	}

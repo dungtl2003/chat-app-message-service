@@ -18,6 +18,7 @@ This service is responsible for managing media files, including uploading, proce
 | Name | Description | Required | Default | Type | Possible Values  |
 | ---- | ----------- | -------- | ------- | ---- | ---------------- |
 | DATABASE_URL | The URL to the database service | Yes | | string | any valid URL |
+| DATABASE_READ_URL | The URL of the read database. If not provided, it will use DATABASE_URL | No | | string | any valid URL |
 | PORT | The port to run the service | No | 8400 | int | any valid port number |
 | LOG_LEVEL | The log level of the service | No | INFO | string | DEBUG, INFO, WARN, ERROR |
 | LOG_KIND | The kind of log to output | No | TEXT | string | TEXT, JSON |

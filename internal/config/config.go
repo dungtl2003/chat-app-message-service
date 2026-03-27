@@ -22,7 +22,8 @@ type IdGeneratorConfig struct {
 }
 
 type DatabaseConfig struct {
-	URL string
+	URL     string
+	ReadURL string
 }
 
 type MediaConfig struct {
@@ -144,7 +145,12 @@ func (c ConversationConfig) String() string {
 }
 
 func (d DatabaseConfig) String() string {
-	return fmt.Sprintf("DatabaseConfig{URL: %s}", d.URL)
+	parts := []string{
+		fmt.Sprintf("URL: %s", d.URL),
+		fmt.Sprintf("READ_URL: %s", d.ReadURL),
+	}
+
+	return fmt.Sprintf("DatabaseConfig{%s}", strings.Join(parts, ", "))
 }
 
 func (s IdGeneratorConfig) String() string {
@@ -322,12 +328,23 @@ func (c *Config) setEnv() error {
 }
 
 func (c *Config) setDatabaseConfig() error {
-	log.Println("Setting DATABASE_CONFIG")
-	dbUrl, has := os.LookupEnv("DATABASE_URL")
+	log.Println("Setting DATABASE_URL")
+	url, has := os.LookupEnv("DATABASE_URL")
 	if !has {
 		return fmt.Errorf("DATABASE_URL is required")
 	}
-	c.DatabaseConfig.URL = dbUrl
 
+	if url == "" {
+		return fmt.Errorf("DATABASE_URL cannot be empty")
+	}
+
+	readUrl, has := os.LookupEnv("DATABASE_READ_URL")
+	if has && readUrl != "" {
+		c.DatabaseConfig.ReadURL = readUrl
+	} else {
+		c.DatabaseConfig.ReadURL = url
+	}
+
+	c.DatabaseConfig.URL = url
 	return nil
 }

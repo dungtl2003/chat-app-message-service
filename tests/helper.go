@@ -69,7 +69,7 @@ func NewTestHelper() *TestHelper {
 		log.Fatal("ADMIN_DATABASE_URL is not set")
 	}
 
-	db, err := database.New(dbURL, loggerWrapper)
+	db, err := database.New(dbURL, dbURL, loggerWrapper)
 	if err != nil {
 		log.Fatalf("Error when creating database connection: %v", err)
 	}
