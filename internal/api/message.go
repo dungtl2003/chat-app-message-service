@@ -458,15 +458,14 @@ func CreateMessage(handlerDeps *HandlerDeps) gin.HandlerFunc {
 		}
 
 		message := model.Message{
-			Id:               types.NewJsonInt64(messageId),
-			Content:          reqBody.Content,
-			Type:             reqBody.Type,
-			CreatedAt:        messageCreatedAt,
-			UpdatedAt:        messageCreatedAt,
-			SenderId:         *reqBody.SenderId,
-			ReceiverId:       *reqBody.ReceiverId,
-			Attachments:      attachments,
-			ReplyToMessageId: reqBody.ReplyToMessageId,
+			Id:          types.NewJsonInt64(messageId),
+			Content:     reqBody.Content,
+			Type:        reqBody.Type,
+			CreatedAt:   messageCreatedAt,
+			UpdatedAt:   messageCreatedAt,
+			SenderId:    *reqBody.SenderId,
+			ReceiverId:  *reqBody.ReceiverId,
+			Attachments: attachments,
 		}
 		// handlerDeps.Logger.Debugfln("message: %s", message)
 

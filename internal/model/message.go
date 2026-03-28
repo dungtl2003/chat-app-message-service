@@ -25,16 +25,15 @@ const (
 )
 
 type Message struct {
-	Id               types.JsonInt64     `json:"id"`
-	Content          string              `json:"content"`
-	Type             MessageType         `json:"type"`
-	CreatedAt        types.JsonTime      `json:"created_at"`
-	UpdatedAt        types.JsonTime      `json:"updated_at"`
-	DeletedAt        types.JsonNullTime  `json:"deleted_at"`
-	SenderId         types.JsonInt64     `json:"sender_id"`
-	ReceiverId       types.JsonInt64     `json:"receiver_id"`
-	ReplyToMessageId types.JsonNullInt64 `json:"reply_to_message_id"`
-	Version          types.JsonInt64     `json:"version"`
+	Id         types.JsonInt64    `json:"id"`
+	Content    string             `json:"content"`
+	Type       MessageType        `json:"type"`
+	CreatedAt  types.JsonTime     `json:"created_at"`
+	UpdatedAt  types.JsonTime     `json:"updated_at"`
+	DeletedAt  types.JsonNullTime `json:"deleted_at"`
+	SenderId   types.JsonInt64    `json:"sender_id"`
+	ReceiverId types.JsonInt64    `json:"receiver_id"`
+	Version    types.JsonInt64    `json:"version"`
 
 	Attachments    []Attachment `json:"attachments"`
 	IdempotencyKey string       `json:"idempotency_key"` // for deduplication at producer side (fast path)

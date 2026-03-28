@@ -264,9 +264,9 @@ func (d *DatabaseService) CreateMessage(
 
 	query := `
 		INSERT INTO message.message (
-			id, content, type, created_at, updated_at, deleted_at, sender_id, receiver_id, reply_to_message_id
+			id, content, type, created_at, updated_at, deleted_at, sender_id, receiver_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8
 		);`
 	args := []any{
 		message.Id,
@@ -277,7 +277,6 @@ func (d *DatabaseService) CreateMessage(
 		message.DeletedAt,
 		message.SenderId,
 		message.ReceiverId,
-		message.ReplyToMessageId,
 	}
 	d.logger.Debugfln("SQL command: %s, arguments: %#v", helper.StripWS(query), args)
 	_, err = tx.ExecContext(ctx, query, args...)
@@ -313,7 +312,7 @@ func (d *DatabaseService) CreateMessage(
 
 	query = `
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id, m.version,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.version,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
@@ -345,7 +344,6 @@ func (d *DatabaseService) CreateMessage(
 		&msg.DeletedAt,
 		&msg.SenderId,
 		&msg.ReceiverId,
-		&msg.ReplyToMessageId,
 		&msg.Version,
 		&rawAttachments,
 	)
@@ -452,7 +450,7 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 
 	query := fmt.Sprintf(`
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, receiver_id, reply_to_message_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, receiver_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
@@ -488,7 +486,7 @@ func (d *DatabaseService) GetMessages(conversationId int64, after types.Optional
 		prevCursor = endCursor
 		message := model.Message{}
 		err = messageRows.Scan(
-			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &message.ReplyToMessageId,
+			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId,
 			&rawAttachments,
 		)
 		if err != nil {
@@ -531,7 +529,7 @@ func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error
 
 	query := `
 		SELECT 
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
 		    COALESCE(
 				json_agg(
 					json_build_object(
@@ -555,7 +553,7 @@ func (d *DatabaseService) GetMessageById(messageId int64) (*model.Message, error
 	var rawAttachments json.RawMessage
 	messageRow := d.readOnlyClient.QueryRow(query, args...)
 	err := messageRow.Scan(
-		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId, &msg.ReplyToMessageId,
+		&msg.Id, &msg.Content, &msg.Type, &msg.CreatedAt, &msg.UpdatedAt, &msg.DeletedAt, &msg.SenderId, &msg.ReceiverId,
 		&rawAttachments)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -762,7 +760,7 @@ func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 
 	messageRows, err := d.readOnlyClient.Query(`
 		SELECT
-			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id, m.reply_to_message_id,
+			m.id, m.content, m.type, m.created_at, m.updated_at, m.deleted_at, m.sender_id, m.receiver_id,
 		    COALESCE(
             	json_agg(
                 	json_build_object(
@@ -789,7 +787,7 @@ func (d *DatabaseService) GetAllMessages() ([]model.Message, error) {
 	for messageRows.Next() {
 		message := model.Message{}
 		err = messageRows.Scan(
-			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId, &message.ReplyToMessageId,
+			&message.Id, &message.Content, &message.Type, &message.CreatedAt, &message.UpdatedAt, &message.DeletedAt, &message.SenderId, &message.ReceiverId,
 			&rawAttachments)
 		if err != nil {
 			return nil, err
