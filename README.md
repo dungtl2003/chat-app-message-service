@@ -1,7 +1,5 @@
 # Message service
 
-Last updated: 2026-01-05
-
 # Table of Contents    
 
 - [Description](#description)
